@@ -42,10 +42,7 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
 
-            // TODO: Add system tray icon. Currently disabled due to tao panic
-            // on GNOME/X11. Will revisit with tray-icon crate directly or
-            // after Tauri fixes the upstream issue.
-            log::info!("App started (tray icon disabled for now)");
+            log::info!("App started");
 
             // Start background services
             let state_clone = meeting_state.clone();
@@ -62,7 +59,6 @@ pub fn run() {
                     let ms = monitor.size();
                     let mp = monitor.position();
 
-                    // Panel: right edge, vertically centered
                     let panel_w = 280;
                     let panel_h = 420;
                     let panel_x = mp.x + ms.width as i32 - panel_w - 20;
@@ -72,7 +68,6 @@ pub fn run() {
                         y: panel_y,
                     });
 
-                    // Overlay: thin strip to the left of the panel
                     if let Some(overlay) = app.get_webview_window("overlay") {
                         let overlay_w = 80;
                         let overlay_h = 600;

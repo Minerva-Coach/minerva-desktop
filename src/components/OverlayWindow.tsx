@@ -22,12 +22,23 @@ export function OverlayWindow() {
   const { lastCoachingMessage } = useSocket(token);
   const [icons, setIcons] = useState<ActiveIcon[]>([]);
 
-  // Enable click-through by default
+  // Enable click-through once the window is visible.
+  // IMPORTANT: Do NOT call setIgnoreCursorEvents on a hidden window — tao's
+  // Linux backend calls .window().unwrap() which panics if the GTK window
+  // hasn't been realized (no GDK surface when visible=false).
+  const [visible, setVisible] = useState(false);
+
   useEffect(() => {
+    const unlisten = listen("meeting-started", () => setVisible(true));
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
     getCurrentWebviewWindow()
       .setIgnoreCursorEvents(true)
       .catch(() => {});
-  }, []);
+  }, [visible]);
 
   // Handle real coaching messages from SocketIO
   useEffect(() => {
