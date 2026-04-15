@@ -44,7 +44,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage"],
+    "targets": ["deb", "appimage", "msi", "nsis", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -68,8 +68,10 @@
       "open": true
     },
     "updater": {
-      "pubkey": "",
-      "endpoints": []
+      "pubkey": "REPLACE_WITH_PUBLIC_KEY",
+      "endpoints": [
+        "https://github.com/Minerva-Coach/MinervaMVP/releases/latest/download/latest.json"
+      ]
     }
   }
 }
