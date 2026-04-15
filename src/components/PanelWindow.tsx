@@ -19,17 +19,18 @@ export function PanelWindow() {
   const chartData = devChartData ?? lastChartData;
   const { accounts, loading: accountsLoading, refresh: refreshAccounts } =
     useConnectedAccounts(isAuthenticated);
-  const { inMeeting, meetingUrl } = useMeetingStatus();
+  const { inMeeting } = useMeetingStatus();
 
   // Invite state
   const [inviteStatus, setInviteStatus] = useState<
     "idle" | "sending" | "sent" | "error"
   >("idle");
   const [inviteError, setInviteError] = useState("");
-  const [manualUrl, setManualUrl] = useState("");
-  const [showManualInput, setShowManualInput] = useState(false);
+  const [pastedUrl, setPastedUrl] = useState("");
 
-  const doInvite = async (url: string) => {
+  const handleInvite = async () => {
+    const url = pastedUrl.trim();
+    if (!url) return;
     setInviteStatus("sending");
     setInviteError("");
 
@@ -45,7 +46,7 @@ export function PanelWindow() {
 
       if (resp.ok) {
         setInviteStatus("sent");
-        setShowManualInput(false);
+        setPastedUrl("");
       } else if (resp.status === 402) {
         setInviteStatus("error");
         setInviteError("Subscription required");
@@ -58,15 +59,6 @@ export function PanelWindow() {
       setInviteStatus("error");
       setInviteError("Network error");
     }
-  };
-
-  const handleAutoInvite = () => {
-    if (meetingUrl) doInvite(meetingUrl);
-  };
-
-  const handleManualInvite = () => {
-    const url = manualUrl.trim();
-    if (url) doInvite(url);
   };
 
   const handleHide = async () => {
@@ -112,59 +104,32 @@ export function PanelWindow() {
       );
     }
 
-    // Meeting detected, no bot — offer invite options
+    // Meeting detected, no bot — paste invite link
     return (
       <div className="space-y-1.5">
-        {meetingUrl && !showManualInput ? (
-          <>
-            <button
-              onClick={handleAutoInvite}
-              disabled={inviteStatus === "sending"}
-              className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-xs font-medium transition-colors"
-            >
-              {inviteStatus === "sending"
-                ? "Inviting..."
-                : "Invite Minerva to this meeting"}
-            </button>
-            {inviteStatus === "error" && (
-              <>
-                <p className="text-[10px] text-red-400">{inviteError}</p>
-                <button
-                  onClick={() => setShowManualInput(true)}
-                  className="text-[10px] text-blue-400 hover:text-blue-300"
-                >
-                  Paste meeting link instead
-                </button>
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <p className="text-[10px] text-gray-400">
-              Paste your Zoom invite link:
-            </p>
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                value={manualUrl}
-                onChange={(e) => setManualUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleManualInvite()}
-                placeholder="https://zoom.us/j/..."
-                className="flex-1 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-xs text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
-                disabled={inviteStatus === "sending"}
-              />
-              <button
-                onClick={handleManualInvite}
-                disabled={!manualUrl.trim() || inviteStatus === "sending"}
-                className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-xs font-medium transition-colors whitespace-nowrap"
-              >
-                {inviteStatus === "sending" ? "..." : "Invite"}
-              </button>
-            </div>
-            {inviteStatus === "error" && (
-              <p className="text-[10px] text-red-400">{inviteError}</p>
-            )}
-          </>
+        <p className="text-[10px] text-gray-400">
+          Paste your meeting invite link to add Minerva:
+        </p>
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            value={pastedUrl}
+            onChange={(e) => setPastedUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleInvite()}
+            placeholder="https://zoom.us/j/..."
+            className="flex-1 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-xs text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
+            disabled={inviteStatus === "sending"}
+          />
+          <button
+            onClick={handleInvite}
+            disabled={!pastedUrl.trim() || inviteStatus === "sending"}
+            className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-xs font-medium transition-colors whitespace-nowrap"
+          >
+            {inviteStatus === "sending" ? "..." : "Invite"}
+          </button>
+        </div>
+        {inviteStatus === "error" && (
+          <p className="text-[10px] text-red-400">{inviteError}</p>
         )}
       </div>
     );
