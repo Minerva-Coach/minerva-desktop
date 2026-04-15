@@ -11,9 +11,11 @@ use crate::auth;
 use crate::process_detector::MeetingState;
 
 /// Shared reqwest client — accepts self-signed certs in debug builds.
+/// Redirect following is disabled so we can detect auth failures (302 → /login).
 static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .danger_accept_invalid_certs(cfg!(debug_assertions))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 });
