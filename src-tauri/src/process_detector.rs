@@ -33,11 +33,21 @@ const ZOOM_PROCESS_NAMES: &[&str] = &[
 ];
 
 /// Window titles that positively indicate an active Zoom meeting.
-/// Zoom creates a window titled "Meeting" (or the meeting topic) during calls.
-/// We also check for "cc_receiver" (closed captions) as a secondary signal.
+/// These only exist during active calls, not when Zoom is idle in the tray.
 const MEETING_WINDOW_TITLES: &[&str] = &[
-    "meeting",       // Default meeting window title on Linux
-    "cc_receiver",   // Closed captions receiver (only during meetings)
+    "meeting",                       // Default meeting window title on Linux
+    "zoom_linux_float_video_window", // Floating video thumbnail (active calls only)
+    "cc_receiver",                   // Closed captions receiver (active calls only)
+];
+
+/// Window titles that Zoom shows when IDLE (no meeting). Any Zoom window title
+/// NOT in this list and not empty is likely a meeting (custom topic name).
+const IDLE_WINDOW_TITLES: &[&str] = &[
+    "zoom workplace",
+    "zoom workplace - licensed account",
+    "zoom workplace - free account",
+    "zoom",
+    "recordings",
 ];
 
 /// Additionally: if PipeWire/PulseAudio shows "ZOOM VoiceEngine" as an active
@@ -199,8 +209,18 @@ fn has_meeting_window_xdotool() -> bool {
                             let title = String::from_utf8_lossy(&name_output.stdout)
                                 .trim()
                                 .to_lowercase();
+                            if title.is_empty() {
+                                continue;
+                            }
+                            // Check 1: Known meeting-only window titles
                             if MEETING_WINDOW_TITLES.iter().any(|mt| title == *mt) {
-                                log::info!("Meeting window found: '{}' (wid={})", title, wid);
+                                log::info!("Meeting window found (known title): '{}' (wid={})", title, wid);
+                                return true;
+                            }
+                            // Check 2: Any title that isn't a known idle title
+                            // is likely a custom meeting topic (e.g. "Weekly Standup")
+                            if !IDLE_WINDOW_TITLES.iter().any(|it| title == *it) {
+                                log::info!("Meeting window found (custom title): '{}' (wid={})", title, wid);
                                 return true;
                             }
                         }
@@ -259,6 +279,7 @@ fn check_window_titles(wmctrl_output: &str) -> bool {
             continue;
         }
         let title = parts[3].trim().to_lowercase();
+        // wmctrl lists ALL windows, not just Zoom — only check known meeting titles
         if MEETING_WINDOW_TITLES.iter().any(|mt| title == *mt) {
             log::debug!("Meeting window found via wmctrl: {}", parts[3].trim());
             return true;

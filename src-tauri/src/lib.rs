@@ -38,6 +38,7 @@ pub fn run() {
             commands::get_api_url,
             commands::hide_windows,
             commands::show_windows,
+            commands::api_request,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
