@@ -21,7 +21,6 @@ export function useSocket(token: string | null): UseSocketReturn {
 
   useEffect(() => {
     if (!token) {
-      // Disconnect if token is cleared
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -61,11 +60,14 @@ export function useSocket(token: string | null): UseSocketReturn {
         if (!cancelled) setIsConnected(false);
       });
 
-      socket.on("connect_error", () => {
-        if (!cancelled) setIsConnected(false);
+      socket.on("connect_error", (err) => {
+        if (!cancelled) {
+          setIsConnected(false);
+          console.warn("Socket connect error:", err.message);
+        }
       });
 
-      // Backend sends this on successful connection with list of active meetings
+      // Backend sends this on connection and after refresh_meetings
       socket.on(
         "connected",
         (data: { user_id: number; meetings: number[]; timestamp: string }) => {
@@ -73,14 +75,25 @@ export function useSocket(token: string | null): UseSocketReturn {
         }
       );
 
-      // Coaching messages from the bot during meetings
       socket.on("coaching_message", (data: CoachingMessage) => {
         if (!cancelled) setLastCoachingMessage(data);
       });
 
-      // Chart data updates (stored for potential future use)
       socket.on("companion_data_update", (data: CompanionDataUpdate) => {
         if (!cancelled) setLastChartData(data);
+      });
+
+      // Periodically ask the backend to re-check active meetings and
+      // join rooms. Handles the case where the socket connected before
+      // the bot verified the user.
+      const refreshInterval = setInterval(() => {
+        if (socket.connected) {
+          socket.emit("refresh_meetings");
+        }
+      }, 10000);
+
+      socket.on("disconnect", () => {
+        clearInterval(refreshInterval);
       });
     }
 

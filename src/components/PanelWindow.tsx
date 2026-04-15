@@ -12,7 +12,8 @@ import { DevMode } from "./panel/DevMode";
 
 export function PanelWindow() {
   const { token, isAuthenticated, loading, login } = useAuth();
-  const { isConnected, lastChartData } = useSocket(token);
+  const { isConnected, activeMeetings, lastChartData } = useSocket(token);
+  const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
   const chartData = devChartData ?? lastChartData;
   const { accounts, loading: accountsLoading, refresh: refreshAccounts } =
@@ -84,7 +85,14 @@ export function PanelWindow() {
               loading={accountsLoading}
               onRefresh={refreshAccounts}
             />
-            <InviteSection />
+            {!hasBotInMeeting && <InviteSection />}
+            {hasBotInMeeting && (
+              <div className="py-1 px-2 rounded bg-green-900/20 border border-green-800/30">
+                <p className="text-[10px] text-green-300">
+                  Minerva is active in your meeting
+                </p>
+              </div>
+            )}
             <Gauges chartData={chartData} />
             <DevMode />
           </>
