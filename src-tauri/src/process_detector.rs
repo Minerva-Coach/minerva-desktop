@@ -68,6 +68,13 @@ impl MeetingState {
     }
 }
 
+/// Payload emitted with meeting-started event.
+#[derive(Clone, serde::Serialize)]
+pub struct MeetingStartedPayload {
+    /// Zoom meeting URL (e.g., "https://zoom.us/j/1234567890"), if extractable.
+    pub meeting_url: Option<String>,
+}
+
 /// Start the process detection loop in a background task.
 pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
     tauri::async_runtime::spawn(async move {
@@ -100,8 +107,9 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
             // managed by the frontend — no Rust show/hide calls, which
             // trigger a tao/GTK panic on Linux via glib channel dispatch.
             if in_meeting && !was_in_meeting {
-                log::info!("Active Zoom meeting detected");
-                let _ = app.emit("meeting-started", ());
+                let meeting_url = extract_zoom_meeting_url();
+                log::info!("Active Zoom meeting detected (url={meeting_url:?})");
+                let _ = app.emit("meeting-started", MeetingStartedPayload { meeting_url });
             } else if !in_meeting && was_in_meeting {
                 log::info!("Zoom meeting ended");
                 let _ = app.emit("meeting-stopped", ());
@@ -111,6 +119,69 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     });
+}
+
+/// Extract the Zoom meeting URL from the process command line.
+///
+/// On Linux, reads `/proc/{pid}/cmdline` for the main zoom process.
+/// The cmdline contains `zoommtg://zoom.us/join?...&confno=XXXXXXX&...`
+/// which we parse to construct `https://zoom.us/j/{confno}`.
+fn extract_zoom_meeting_url() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        // Find zoom PID
+        let output = Command::new("pgrep").arg("-x").arg("zoom").output().ok()?;
+        let pids = String::from_utf8_lossy(&output.stdout);
+        for pid in pids.lines() {
+            let pid = pid.trim();
+            if pid.is_empty() {
+                continue;
+            }
+            // Read /proc/{pid}/cmdline (null-separated args)
+            if let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) {
+                let cmdline = cmdline.replace('\0', " ");
+                // Look for confno= parameter
+                if let Some(pos) = cmdline.find("confno=") {
+                    let after = &cmdline[pos + 7..];
+                    let confno: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if !confno.is_empty() {
+                        let url = format!("https://zoom.us/j/{confno}");
+                        log::debug!("Extracted Zoom meeting URL: {url}");
+                        return Some(url);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: use `ps` to get command line arguments
+        let output = Command::new("ps")
+            .args(["-eo", "args"])
+            .output()
+            .ok()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("zoom.us") && line.contains("confno=") {
+                if let Some(pos) = line.find("confno=") {
+                    let after = &line[pos + 7..];
+                    let confno: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if !confno.is_empty() {
+                        return Some(format!("https://zoom.us/j/{confno}"));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // TODO: Use Windows API to get process command line
+        None
+    }
 }
 
 /// Check if Zoom has an active meeting window (not just idle in tray).
