@@ -68,7 +68,7 @@
       "open": true
     },
     "updater": {
-      "pubkey": "REPLACE_WITH_PUBLIC_KEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5MzVDRDg0OERERDE5NzcKUldSM0dkMk5oTTAxaVVwZEZoUlprZ0NaRFZrUFhsemVVbVkxcVJQcituSDlzZHpJRVo1bFA1SngK",
       "endpoints": [
         "https://github.com/Minerva-Coach/MinervaMVP/releases/latest/download/latest.json"
       ]
