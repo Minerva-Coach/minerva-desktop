@@ -12,23 +12,27 @@ mod auth;
 mod commands;
 mod presence;
 mod process_detector;
+mod socket_proxy;
 
 use std::sync::Arc;
 
 use tauri::Manager;
 
 use process_detector::MeetingState;
+use socket_proxy::SocketState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
 
     let meeting_state = Arc::new(MeetingState::new());
+    let socket_state = Arc::new(SocketState::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(meeting_state.clone())
+        .manage(socket_state.clone())
         .invoke_handler(tauri::generate_handler![
             commands::start_login,
             commands::logout,
@@ -51,6 +55,9 @@ pub fn run() {
 
             let state_clone = meeting_state.clone();
             presence::start_heartbeat_loop(handle.clone(), state_clone);
+
+            // SocketIO proxy — connects from Rust to bypass webview TLS restrictions
+            socket_proxy::start_socket_proxy(handle.clone(), socket_state.clone());
 
             // Position windows on the right side of the primary monitor.
             // Panel: right edge, vertically centered.

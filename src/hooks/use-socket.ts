@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { io, Socket } from "socket.io-client";
+import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type { CoachingMessage, CompanionDataUpdate } from "../types/coaching";
+
+interface ConnectedPayload {
+  user_id: number;
+  meetings: number[];
+  timestamp: string;
+}
 
 interface UseSocketReturn {
   isConnected: boolean;
@@ -10,103 +15,48 @@ interface UseSocketReturn {
   lastChartData: CompanionDataUpdate | null;
 }
 
-export function useSocket(token: string | null): UseSocketReturn {
+/**
+ * Listen for SocketIO events proxied through Rust.
+ *
+ * The Rust socket_proxy connects to the backend SocketIO server (bypassing
+ * webkit2gtk's TLS restrictions) and forwards events as Tauri events:
+ * - socket-status: "connected" | "disconnected"
+ * - socket-connected: { user_id, meetings, timestamp }
+ * - socket-coaching-message: CoachingMessage
+ * - socket-companion-data: CompanionDataUpdate
+ */
+export function useSocket(_token: string | null): UseSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [activeMeetings, setActiveMeetings] = useState<number[]>([]);
   const [lastCoachingMessage, setLastCoachingMessage] =
     useState<CoachingMessage | null>(null);
   const [lastChartData, setLastChartData] =
     useState<CompanionDataUpdate | null>(null);
-  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-        setIsConnected(false);
-        setActiveMeetings([]);
-      }
-      return;
-    }
+    const unlisteners = [
+      listen<string>("socket-status", (event) => {
+        setIsConnected(event.payload === "connected");
+      }),
 
-    let cancelled = false;
+      listen<ConnectedPayload>("socket-connected", (event) => {
+        setIsConnected(true);
+        setActiveMeetings(event.payload.meetings ?? []);
+      }),
 
-    async function connect() {
-      const apiUrl = await invoke<string>("get_api_url");
+      listen<CoachingMessage>("socket-coaching-message", (event) => {
+        setLastCoachingMessage(event.payload);
+      }),
 
-      if (cancelled) return;
-
-      const socket = io(apiUrl, {
-        path: "/socket.io",
-        transports: ["polling"],
-        extraHeaders: {
-          Authorization: `Bearer ${token}`,
-        },
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout: 20000,
-      });
-
-      socketRef.current = socket;
-
-      socket.on("connect", () => {
-        if (!cancelled) setIsConnected(true);
-      });
-
-      socket.on("disconnect", () => {
-        if (!cancelled) setIsConnected(false);
-      });
-
-      socket.on("connect_error", (err) => {
-        if (!cancelled) {
-          setIsConnected(false);
-          console.warn("Socket connect error:", err.message);
-        }
-      });
-
-      // Backend sends this on connection and after refresh_meetings
-      socket.on(
-        "connected",
-        (data: { user_id: number; meetings: number[]; timestamp: string }) => {
-          if (!cancelled) setActiveMeetings(data.meetings);
-        }
-      );
-
-      socket.on("coaching_message", (data: CoachingMessage) => {
-        if (!cancelled) setLastCoachingMessage(data);
-      });
-
-      socket.on("companion_data_update", (data: CompanionDataUpdate) => {
-        if (!cancelled) setLastChartData(data);
-      });
-
-      // Periodically ask the backend to re-check active meetings and
-      // join rooms. Handles the case where the socket connected before
-      // the bot verified the user.
-      const refreshInterval = setInterval(() => {
-        if (socket.connected) {
-          socket.emit("refresh_meetings");
-        }
-      }, 10000);
-
-      socket.on("disconnect", () => {
-        clearInterval(refreshInterval);
-      });
-    }
-
-    connect();
+      listen<CompanionDataUpdate>("socket-companion-data", (event) => {
+        setLastChartData(event.payload);
+      }),
+    ];
 
     return () => {
-      cancelled = true;
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
+      unlisteners.forEach((p) => p.then((fn) => fn()));
     };
-  }, [token]);
+  }, []);
 
   return { isConnected, activeMeetings, lastCoachingMessage, lastChartData };
 }
