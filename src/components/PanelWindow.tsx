@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "../hooks/use-auth";
@@ -20,6 +20,11 @@ export function PanelWindow() {
   const { accounts, loading: accountsLoading, refresh: refreshAccounts } =
     useConnectedAccounts(isAuthenticated);
   const { inMeeting } = useMeetingStatus();
+
+  // Re-fetch accounts when bot becomes active (verification creates new identities)
+  useEffect(() => {
+    if (hasBotInMeeting) refreshAccounts();
+  }, [hasBotInMeeting]);
 
   // Invite state
   const [inviteStatus, setInviteStatus] = useState<
