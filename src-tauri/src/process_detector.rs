@@ -126,6 +126,35 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
 /// On Linux, reads `/proc/{pid}/cmdline` for the main zoom process.
 /// The cmdline contains `zoommtg://zoom.us/join?...&confno=XXXXXXX&...`
 /// which we parse to construct `https://zoom.us/j/{confno}`.
+///
+/// LIMITATION: This extracts the meeting number but NOT the password.
+/// Password-protected meetings (nearly all real meetings) need the full
+/// URL with `?pwd=...` which is only available from the calendar invite
+/// or Zoom's "Copy Invite Link" UI. This function is kept for future use.
+///
+/// FUTURE: Eliminate manual URL paste entirely via platform integrations:
+///
+/// Zoom Marketplace App (requires Zoom Marketplace approval):
+///   - Register a Zoom Marketplace app with `meeting:read` scope
+///   - Subscribe to `meeting.started` webhook events
+///   - When a user with our app installed joins a meeting, Zoom pushes
+///     the event with full meeting details (ID, password, host, etc.)
+///   - Backend receives webhook → auto-dispatches Recall bot
+///   - Desktop app just shows "Minerva is joining..." with no user action
+///   - See: https://developers.zoom.us/docs/api/rest/reference/zoom-api/methods/#operation/meetings
+///
+/// Microsoft Teams App (requires Teams Admin approval):
+///   - Register a Teams bot via Azure Bot Service + Teams app manifest
+///   - Use Microsoft Graph `onlineMeeting` subscriptions or
+///     `callRecords` change notifications to detect meeting start
+///   - Graph API provides join URL directly: GET /me/onlineMeetings
+///   - Backend receives notification → auto-dispatches Recall bot
+///   - Same zero-action UX as Zoom Marketplace
+///   - See: https://learn.microsoft.com/en-us/graph/api/resources/onlinemeeting
+///
+/// Both approaches make the desktop app's "paste link" flow obsolete —
+/// the bot joins automatically for any user who has installed the
+/// platform app. The desktop app becomes purely a coaching display.
 fn extract_zoom_meeting_url() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
