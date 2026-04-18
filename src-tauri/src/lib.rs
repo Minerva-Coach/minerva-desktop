@@ -13,6 +13,8 @@ mod commands;
 mod presence;
 mod process_detector;
 mod socket_proxy;
+#[cfg(not(target_os = "linux"))]
+mod tray;
 
 use std::sync::Arc;
 
@@ -31,6 +33,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(meeting_state.clone())
         .manage(socket_state.clone())
         .invoke_handler(tauri::generate_handler![
@@ -58,6 +65,32 @@ pub fn run() {
 
             // SocketIO proxy — connects from Rust to bypass webview TLS restrictions
             socket_proxy::start_socket_proxy(handle.clone(), socket_state.clone());
+
+            // Enable launch-at-login by default in release builds. Skipped
+            // in dev so we don't register the throwaway debug binary as a
+            // login-launch item. Users can disable via OS settings (Task
+            // Manager > Startup on Windows, Login Items on macOS).
+            #[cfg(not(debug_assertions))]
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                let manager = app.autolaunch();
+                match manager.is_enabled() {
+                    Ok(false) => {
+                        if let Err(e) = manager.enable() {
+                            log::warn!("Failed to enable autostart: {e}");
+                        } else {
+                            log::info!("Autostart enabled");
+                        }
+                    }
+                    Ok(true) => log::debug!("Autostart already enabled"),
+                    Err(e) => log::warn!("Failed to query autostart status: {e}"),
+                }
+            }
+
+            // System tray icon — Windows and macOS only. Linux's GTK tray
+            // triggered tao panics in earlier testing.
+            #[cfg(not(target_os = "linux"))]
+            tray::setup(app)?;
 
             // Position windows on the right side of the primary monitor.
             // Panel: right edge, vertically centered.

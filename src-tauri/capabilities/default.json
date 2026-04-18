@@ -16,6 +16,10 @@
     "core:window:allow-start-dragging",
     "core:event:default",
     "shell:allow-open",
-    "updater:default"
+    "updater:default",
+    "process:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

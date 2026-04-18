@@ -16,6 +16,18 @@ export function useMeetingStatus() {
   const [meetingUrl, setMeetingUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    // Sync initial state — the Rust detector may have already fired
+    // `meeting-started` before React mounted (e.g. Zoom was already in a
+    // meeting when the app launched). Without this the panel never shows.
+    invoke<boolean>("is_in_meeting")
+      .then((active) => {
+        if (active) {
+          setInMeeting(true);
+          invoke("show_windows").catch(console.warn);
+        }
+      })
+      .catch(console.warn);
+
     const unlistenStart = listen<MeetingStartedPayload>(
       "meeting-started",
       (event) => {

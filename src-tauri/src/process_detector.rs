@@ -7,6 +7,7 @@
 //! - `meeting-started` when an active Zoom meeting is detected
 //! - `meeting-stopped` when the meeting ends (or Zoom closes)
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -14,12 +15,13 @@ use std::time::Duration;
 
 /// Get the DISPLAY env var, falling back to ":0" if not set.
 /// xdotool and wmctrl require this to talk to the X server.
+#[cfg(target_os = "linux")]
 fn get_display() -> String {
     std::env::var("DISPLAY").unwrap_or_else(|_| ":1".to_string())
 }
 
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 /// Check interval for process detection.
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
@@ -34,6 +36,7 @@ const ZOOM_PROCESS_NAMES: &[&str] = &[
 
 /// Window titles that positively indicate an active Zoom meeting.
 /// These only exist during active calls, not when Zoom is idle in the tray.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const MEETING_WINDOW_TITLES: &[&str] = &[
     "meeting",                       // Default meeting window title on Linux
     "zoom_linux_float_video_window", // Floating video thumbnail (active calls only)
@@ -42,6 +45,7 @@ const MEETING_WINDOW_TITLES: &[&str] = &[
 
 /// Window titles that Zoom shows when IDLE (no meeting). Any Zoom window title
 /// NOT in this list and not empty is likely a meeting (custom topic name).
+#[cfg(target_os = "linux")]
 const IDLE_WINDOW_TITLES: &[&str] = &[
     "zoom workplace",
     "zoom workplace - licensed account",
@@ -53,6 +57,7 @@ const IDLE_WINDOW_TITLES: &[&str] = &[
 /// Additionally: if PipeWire/PulseAudio shows "ZOOM VoiceEngine" as an active
 /// audio client, that's a strong signal of an active meeting (voice engine only
 /// runs during calls).
+#[cfg(target_os = "linux")]
 const AUDIO_MEETING_SIGNAL: &str = "zoom voiceengine";
 
 /// Shared state for current meeting status.
@@ -233,10 +238,113 @@ fn is_in_active_meeting() -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        // TODO: Implement Windows meeting detection
-        // For now, assume any running Zoom means a meeting
-        true
+        is_in_active_meeting_windows()
     }
+}
+
+/// Windows meeting detection: enumerate top-level windows owned by Zoom.exe
+/// and look for titles that only appear during active meetings.
+///
+/// Positive indicators (case-insensitive):
+/// - "zoom meeting"           → standard meeting window
+/// - "annotation - zoom"      → screen-sharing annotation toolbar
+/// - ends with "zoom meeting" → lobby/pre-join (e.g. "Alice's Zoom Meeting")
+///
+/// Ignored as idle: blank titles, "Zoom Workplace", "Zoom".
+#[cfg(target_os = "windows")]
+fn is_in_active_meeting_windows() -> bool {
+    use std::collections::HashSet;
+    use windows::Win32::Foundation::{BOOL, FALSE, HWND, LPARAM, TRUE};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+    };
+
+    struct EnumState {
+        zoom_pids: HashSet<u32>,
+        found_meeting: bool,
+    }
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        // SAFETY: lparam is a pointer to EnumState passed in from the caller.
+        let state = &mut *(lparam.0 as *mut EnumState);
+
+        if !IsWindowVisible(hwnd).as_bool() {
+            return TRUE;
+        }
+
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid as *mut u32));
+        if !state.zoom_pids.contains(&pid) {
+            return TRUE;
+        }
+
+        let mut buf = [0u16; 256];
+        let len = GetWindowTextW(hwnd, &mut buf);
+        if len <= 0 {
+            return TRUE;
+        }
+        let title = String::from_utf16_lossy(&buf[..len as usize])
+            .trim()
+            .to_lowercase();
+
+        if is_meeting_title(&title) {
+            log::info!("Windows meeting detected via title: '{}'", title);
+            state.found_meeting = true;
+            return FALSE; // stop enumeration
+        }
+
+        TRUE
+    }
+
+    // Collect Zoom.exe PIDs. The caller already confirmed Zoom is running,
+    // but we need PIDs to filter windows by owner (avoids matching unrelated
+    // apps whose windows happen to contain "meeting" in their title).
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing(),
+    );
+    let zoom_pids: HashSet<u32> = sys
+        .processes()
+        .values()
+        .filter(|p| {
+            p.name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("zoom.exe")
+        })
+        .map(|p| p.pid().as_u32())
+        .collect();
+
+    if zoom_pids.is_empty() {
+        return false;
+    }
+
+    let mut state = EnumState {
+        zoom_pids,
+        found_meeting: false,
+    };
+
+    unsafe {
+        // EnumWindows returns Err if the callback stops enumeration early —
+        // that's our "found a meeting" case, not a real error.
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut state as *mut _ as isize));
+    }
+
+    state.found_meeting
+}
+
+#[cfg(target_os = "windows")]
+fn is_meeting_title(title: &str) -> bool {
+    // Exact matches for meeting-only windows
+    if title == "zoom meeting" || title == "annotation - zoom" {
+        return true;
+    }
+    // Lobby / pre-join: "<name>'s Zoom Meeting"
+    if title.ends_with(" zoom meeting") {
+        return true;
+    }
+    false
 }
 
 #[cfg(target_os = "linux")]
