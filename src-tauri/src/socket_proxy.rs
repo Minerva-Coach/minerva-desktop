@@ -18,14 +18,19 @@ use tauri::{AppHandle, Emitter};
 use crate::auth;
 
 /// Shared state for the socket proxy.
+///
+/// `client` holds the connected socket when active, `None` otherwise.
+/// Tauri commands read this to emit events without owning the proxy loop.
 pub struct SocketState {
     pub connected: AtomicBool,
+    pub client: tokio::sync::Mutex<Option<Client>>,
 }
 
 impl SocketState {
     pub fn new() -> Self {
         Self {
             connected: AtomicBool::new(false),
+            client: tokio::sync::Mutex::new(None),
         }
     }
 }
@@ -112,6 +117,7 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
                 Ok(client) => {
                     log::info!("Socket proxy: connected successfully");
                     state.connected.store(true, Ordering::Relaxed);
+                    *state.client.lock().await = Some(client.clone());
                     let _ = app.emit("socket-status", "connected");
 
                     // Periodically emit refresh_meetings to join rooms
@@ -143,6 +149,7 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
             }
 
             state.connected.store(false, Ordering::Relaxed);
+            *state.client.lock().await = None;
             let _ = app.emit("socket-status", "disconnected");
 
             // Wait before reconnecting

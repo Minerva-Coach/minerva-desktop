@@ -33,6 +33,29 @@ export function PanelWindow() {
   const [inviteError, setInviteError] = useState("");
   const [pastedUrl, setPastedUrl] = useState("");
 
+  // Meeting status ("How's it going?") — mirrors the companion app feature.
+  type MeetingVibe = "going_well" | "neutral" | "struggling";
+  const [meetingVibe, setMeetingVibe] = useState<MeetingVibe | null>(null);
+  const activeMeetingId = activeMeetings[0];
+
+  // Reset vibe when the meeting ends.
+  useEffect(() => {
+    if (!hasBotInMeeting) setMeetingVibe(null);
+  }, [hasBotInMeeting]);
+
+  const handleVibeChange = async (vibe: MeetingVibe) => {
+    setMeetingVibe(vibe);
+    if (!activeMeetingId) return;
+    try {
+      await invoke("send_meeting_status", {
+        status: vibe,
+        meetingId: activeMeetingId,
+      });
+    } catch (err) {
+      console.warn("send_meeting_status failed:", err);
+    }
+  };
+
   const handleInvite = async () => {
     const url = pastedUrl.trim();
     if (!url) return;
@@ -87,13 +110,39 @@ export function PanelWindow() {
   const renderMeetingSection = () => {
     if (!inMeeting) return null;
 
-    // Bot is active — show live status
+    // Bot is active — show live status + "How's it going?" feedback
     if (hasBotInMeeting) {
+      const vibes: { value: MeetingVibe; emoji: string; label: string }[] = [
+        { value: "going_well", emoji: "😊", label: "Going well" },
+        { value: "neutral", emoji: "😐", label: "Neutral" },
+        { value: "struggling", emoji: "😟", label: "Struggling" },
+      ];
       return (
-        <div className="py-2 px-2 rounded bg-green-900/20 border border-green-800/30">
-          <p className="text-[10px] text-green-300 font-medium">
-            Minerva is coaching this meeting
-          </p>
+        <div className="space-y-2">
+          <div className="py-2 px-2 rounded bg-green-900/20 border border-green-800/30">
+            <p className="text-[10px] text-green-300 font-medium">
+              Minerva is coaching this meeting
+            </p>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-gray-400">How's it going?</span>
+            <div className="flex gap-1">
+              {vibes.map((v) => (
+                <button
+                  key={v.value}
+                  onClick={() => handleVibeChange(v.value)}
+                  title={v.label}
+                  className={`w-7 h-7 rounded flex items-center justify-center text-base transition-colors ${
+                    meetingVibe === v.value
+                      ? "bg-blue-600 hover:bg-blue-500"
+                      : "bg-gray-800 hover:bg-gray-700"
+                  }`}
+                >
+                  {v.emoji}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       );
     }
