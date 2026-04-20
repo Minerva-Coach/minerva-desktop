@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::auth;
 use crate::process_detector::MeetingState;
+use crate::socket_proxy::SocketState;
 
 /// Shared reqwest client — accepts self-signed certs in debug builds.
 /// Redirect following is disabled so we can detect auth failures (302 → /login).
@@ -122,4 +123,34 @@ pub async fn api_request(
 pub struct ApiResponse {
     pub status: u16,
     pub body: String,
+}
+
+/// Emit a "meeting_status" event on the shared SocketIO connection.
+///
+/// Mirrors the companion app's `How's it going?` feature — the user reports
+/// their subjective read on the meeting, backend logs it against the
+/// meeting_id for the product-metrics pipeline.
+///
+/// Expected status values: "going_well" | "neutral" | "struggling"
+/// (backend accepts any string; these three are what the UI emits).
+#[tauri::command]
+pub async fn send_meeting_status(
+    status: String,
+    meeting_id: i64,
+    state: State<'_, Arc<SocketState>>,
+) -> Result<(), String> {
+    let client = state
+        .client
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Socket not connected".to_string())?;
+
+    client
+        .emit(
+            "meeting_status",
+            serde_json::json!({ "status": status, "meeting_id": meeting_id }),
+        )
+        .await
+        .map_err(|e| format!("Failed to emit meeting_status: {e}"))
 }

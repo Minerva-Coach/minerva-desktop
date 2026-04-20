@@ -50,6 +50,7 @@ pub fn run() {
             commands::hide_windows,
             commands::show_windows,
             commands::api_request,
+            commands::send_meeting_status,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
