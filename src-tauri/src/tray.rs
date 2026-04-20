@@ -11,17 +11,18 @@
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, Manager,
+    App, Emitter, Manager,
 };
 
 pub fn setup(app: &mut App) -> tauri::Result<()> {
     let show = MenuItemBuilder::with_id("tray_show", "Show Minerva").build(app)?;
     let hide = MenuItemBuilder::with_id("tray_hide", "Hide Minerva").build(app)?;
+    let about = MenuItemBuilder::with_id("tray_about", "About…").build(app)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItemBuilder::with_id("tray_quit", "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
-        .items(&[&show, &hide, &separator, &quit])
+        .items(&[&show, &hide, &about, &separator, &quit])
         .build()?;
 
     let icon = app
@@ -39,6 +40,12 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
             }
             "tray_hide" => {
                 let _ = hide_all(app);
+            }
+            "tray_about" => {
+                // Make sure the panel is visible before asking it to open
+                // the modal — the frontend listener lives in the panel.
+                let _ = show_all(app);
+                let _ = app.emit("show-about", ());
             }
             "tray_quit" => {
                 app.exit(0);
