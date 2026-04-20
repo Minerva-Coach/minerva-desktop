@@ -51,6 +51,7 @@ pub fn run() {
             commands::show_windows,
             commands::api_request,
             commands::send_meeting_status,
+            commands::get_app_version,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

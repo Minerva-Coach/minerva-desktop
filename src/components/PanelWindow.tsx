@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useAuth } from "../hooks/use-auth";
 import { useSocket } from "../hooks/use-socket";
 import { useDevChartData } from "../hooks/use-dev-events";
 import { useConnectedAccounts } from "../hooks/use-connected-accounts";
 import { useMeetingStatus } from "../hooks/use-meeting-status";
+import { useUpdaterContext } from "../contexts/updater-context";
 import { AccountStatus } from "./panel/AccountStatus";
 import { Gauges } from "./panel/Gauges";
 import { DevMode } from "./panel/DevMode";
+import { AboutModal } from "./panel/AboutModal";
 import { apiFetch } from "../lib/api";
 
 export function PanelWindow() {
-  const { token, isAuthenticated, loading, login } = useAuth();
+  const { token, isAuthenticated, loading, login, logout } = useAuth();
+  const { status: updateStatus } = useUpdaterContext();
   const { isConnected, activeMeetings, lastChartData } = useSocket(token);
   const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
@@ -32,6 +36,23 @@ export function PanelWindow() {
   >("idle");
   const [inviteError, setInviteError] = useState("");
   const [pastedUrl, setPastedUrl] = useState("");
+
+  const [showAbout, setShowAbout] = useState(false);
+
+  // Open About when the tray "About" menu item fires.
+  useEffect(() => {
+    const unlisten = listen("show-about", () => {
+      setShowAbout(true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const handleSignOut = async () => {
+    await logout();
+    setShowAbout(false);
+  };
 
   // Meeting status ("How's it going?") — mirrors the companion app feature.
   type MeetingVibe = "going_well" | "neutral" | "struggling";
@@ -201,6 +222,13 @@ export function PanelWindow() {
         </span>
         <div className="flex gap-1" data-no-drag>
           <button
+            onClick={() => setShowAbout(true)}
+            className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:bg-gray-600 hover:text-white transition-colors text-xs"
+            title="About"
+          >
+            ⓘ
+          </button>
+          <button
             onClick={handleHide}
             className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:bg-gray-600 hover:text-white transition-colors text-xs"
             title="Hide Minerva"
@@ -209,6 +237,27 @@ export function PanelWindow() {
           </button>
         </div>
       </div>
+
+      {/* Update banner — visible when the updater is actively working */}
+      {(updateStatus.kind === "downloading" ||
+        updateStatus.kind === "installing") && (
+        <div className="px-3 py-1.5 bg-blue-900/40 border-b border-blue-800/60 text-[10px] text-blue-200">
+          {updateStatus.kind === "downloading"
+            ? updateStatus.total > 0
+              ? `Downloading v${updateStatus.version}… ${Math.round(
+                  (updateStatus.downloaded / updateStatus.total) * 100
+                )}%`
+              : `Downloading v${updateStatus.version}…`
+            : `Installing v${updateStatus.version}…`}
+        </div>
+      )}
+
+      {showAbout && (
+        <AboutModal
+          onClose={() => setShowAbout(false)}
+          onSignOut={handleSignOut}
+        />
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-no-drag>

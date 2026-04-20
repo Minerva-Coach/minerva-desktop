@@ -58,6 +58,13 @@ pub fn get_api_url() -> String {
     auth::get_api_url()
 }
 
+/// Get the app's compile-time version (from Cargo.toml).
+/// Used by the About modal to display the currently-running version.
+#[tauri::command]
+pub fn get_app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 /// Hide the panel and overlay windows.
 #[tauri::command]
 pub async fn hide_windows(app: AppHandle) -> Result<(), String> {
