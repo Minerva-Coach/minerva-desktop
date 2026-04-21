@@ -46,12 +46,21 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
     }
   };
 
+  const formatCheckedAt = (ts: number) => {
+    const now = Date.now();
+    const delta = Math.round((now - ts) / 1000);
+    if (delta < 60) return "just now";
+    if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+    if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
+    return new Date(ts).toLocaleDateString();
+  };
+
   const updateLine = (() => {
     switch (status.kind) {
       case "checking":
         return "Checking for updates…";
       case "up-to-date":
-        return "You're up to date.";
+        return `You're up to date. Last checked ${formatCheckedAt(status.checkedAt)}.`;
       case "available":
         return `Update available: v${status.version}`;
       case "downloading":
@@ -73,19 +82,26 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
   const isBusy = status.kind === "checking" || status.kind === "downloading" || status.kind === "installing";
 
   return (
-    <div className="absolute inset-0 z-10 bg-gray-900 text-white flex flex-col rounded-xl overflow-hidden">
+    <div
+      className="absolute inset-0 z-10 bg-gray-900 text-white flex flex-col rounded-xl overflow-hidden"
+      data-no-drag
+    >
       <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
         <span className="text-xs font-semibold tracking-wide text-gray-300">About</span>
         <button
           onClick={onClose}
-          className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:bg-gray-600 hover:text-white transition-colors text-xs"
+          className="w-6 h-6 rounded flex items-center justify-center text-gray-300 hover:bg-red-600 hover:text-white transition-colors text-base leading-none"
           title="Close"
+          aria-label="Close about panel"
         >
           ×
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 text-xs">
+      <div
+        className="flex-1 overflow-y-auto px-3 py-3 space-y-3 text-xs [&::-webkit-scrollbar]:hidden"
+        style={{ scrollbarWidth: "none" }}
+      >
         <div>
           <p className="text-gray-200 font-medium">Minerva Coach</p>
           <p className="text-[10px] text-gray-500">Version {version || "…"}</p>
@@ -107,16 +123,18 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
         <div className="flex items-center justify-between py-1">
           <span className="text-[11px] text-gray-300">Launch at login</span>
           <button
+            type="button"
             onClick={toggleAutostart}
             disabled={autostartOn === null}
-            className={`relative w-9 h-5 rounded-full transition-colors ${
+            className={`relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 ${
               autostartOn ? "bg-blue-600" : "bg-gray-700"
             }`}
             aria-pressed={autostartOn === true}
+            aria-label="Toggle launch at login"
           >
             <span
-              className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                autostartOn ? "translate-x-4" : "translate-x-0.5"
+              className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                autostartOn ? "translate-x-5" : "translate-x-0"
               }`}
             />
           </button>

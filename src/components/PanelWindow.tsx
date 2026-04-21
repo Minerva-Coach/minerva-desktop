@@ -212,7 +212,7 @@ export function PanelWindow() {
 
   return (
     <div
-      className="w-full h-full bg-gray-900 text-white flex flex-col rounded-xl overflow-hidden select-none"
+      className="relative w-full h-full bg-gray-900 text-white flex flex-col rounded-xl overflow-hidden select-none"
       onMouseDown={handleDrag}
     >
       {/* Title bar */}
