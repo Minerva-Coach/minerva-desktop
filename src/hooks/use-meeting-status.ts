@@ -34,6 +34,10 @@ export function useMeetingStatus() {
         setInMeeting(true);
         setMeetingUrl(event.payload.meeting_url);
         invoke("show_windows").catch(console.warn);
+        // Honor the user's "Show coaching overlay" preference.
+        if (localStorage.getItem("minerva.overlayVisible") === "false") {
+          invoke("set_overlay_visible", { visible: false }).catch(console.warn);
+        }
       }
     );
 

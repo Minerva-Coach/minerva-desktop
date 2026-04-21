@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -12,6 +12,7 @@ import { AccountStatus } from "./panel/AccountStatus";
 import { Gauges } from "./panel/Gauges";
 import { DevMode } from "./panel/DevMode";
 import { AboutModal } from "./panel/AboutModal";
+import { PostMeetingModal } from "./panel/PostMeetingModal";
 import { apiFetch } from "../lib/api";
 
 export function PanelWindow() {
@@ -20,7 +21,11 @@ export function PanelWindow() {
   const { isConnected, activeMeetings, lastChartData } = useSocket(token);
   const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
-  const chartData = devChartData ?? lastChartData;
+  // Clear stats display when the bot isn't actively coaching — otherwise the
+  // previous meeting's numbers would linger visible into the next one.
+  // Dev-mode simulated data still shows up so the gauges UI can be
+  // developed outside of real meetings.
+  const chartData = devChartData ?? (hasBotInMeeting ? lastChartData : null);
   const { accounts, loading: accountsLoading, refresh: refreshAccounts } =
     useConnectedAccounts(isAuthenticated);
   const { inMeeting } = useMeetingStatus();
@@ -38,6 +43,10 @@ export function PanelWindow() {
   const [pastedUrl, setPastedUrl] = useState("");
 
   const [showAbout, setShowAbout] = useState(false);
+  const [postMeetingId, setPostMeetingId] = useState<number | null>(null);
+  const [postMeetingMock, setPostMeetingMock] = useState<
+    React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
+  >(null);
 
   // Open About when the tray "About" menu item fires.
   useEffect(() => {
@@ -48,6 +57,35 @@ export function PanelWindow() {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  // Dev-mode: Simulate Post-Meeting button in DevMode emits this event.
+  // Only effective when DevMode is rendered (i.e. under `tauri dev`), since
+  // nothing else fires this event in a release build.
+  useEffect(() => {
+    const unlisten = listen<typeof postMeetingMock>(
+      "dev-show-post-meeting",
+      (event) => {
+        setPostMeetingMock(event.payload);
+        setPostMeetingId(-1); // sentinel; the modal won't hit the API with mockData set
+      }
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Trigger post-meeting modal when an active meeting ends. Watch
+  // activeMeetings (source of truth for "bot is coaching"); when a meeting
+  // drops off the list, show the post-meeting popup for that id.
+  const prevActiveMeetings = useRef<number[]>([]);
+  useEffect(() => {
+    const prev = prevActiveMeetings.current;
+    const ended = prev.find((id) => !activeMeetings.includes(id));
+    if (ended !== undefined) {
+      setPostMeetingId(ended);
+    }
+    prevActiveMeetings.current = activeMeetings;
+  }, [activeMeetings]);
 
   const handleSignOut = async () => {
     await logout();
@@ -259,6 +297,17 @@ export function PanelWindow() {
         />
       )}
 
+      {postMeetingId !== null && !showAbout && (
+        <PostMeetingModal
+          meetingId={postMeetingId}
+          mockData={postMeetingMock ?? undefined}
+          onClose={() => {
+            setPostMeetingId(null);
+            setPostMeetingMock(null);
+          }}
+        />
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-no-drag>
         {!isAuthenticated ? (
@@ -285,8 +334,8 @@ export function PanelWindow() {
               onRefresh={refreshAccounts}
             />
             {renderMeetingSection()}
-            <Gauges chartData={chartData} />
-            <DevMode />
+            <Gauges chartData={chartData} hasBotInMeeting={hasBotInMeeting} />
+            {import.meta.env.DEV && <DevMode />}
           </>
         )}
       </div>

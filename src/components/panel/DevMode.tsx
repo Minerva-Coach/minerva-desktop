@@ -2,6 +2,20 @@ import { useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import type { CoachingMessage, CompanionDataUpdate } from "../../types/coaching";
 
+const SAMPLE_POST_MEETING = {
+  advice:
+    "You asked great open-ended questions early in the meeting, which helped the other person feel heard. Watch for times when you summarize before they've finished a thought — a brief pause would let them land their point before you recap. For your next one-on-one, try one summarizing statement near each topic transition rather than mid-answer.",
+  actionItems: [
+    { description: "Send the updated project brief to the team by EOD Friday", assignee: "Alex" },
+    { description: "Schedule a follow-up review for the Q3 roadmap", assignee: "Test Zoom" },
+    { description: "Share the retro notes in the #eng channel" },
+  ],
+  decisions: [
+    { summary: "Move the launch to the second week of May", participants: ["Alex", "Test Zoom"] },
+    { summary: "Adopt RFC-driven planning for all new features", participants: ["Test Zoom"] },
+  ],
+};
+
 const SAMPLE_MESSAGES: Omit<CoachingMessage, "user_id" | "meeting_id" | "timestamp">[] = [
   {
     text: "Great use of an open-ended question! This encourages deeper conversation.",
@@ -129,6 +143,16 @@ export function DevMode() {
           </button>
         </div>
       )}
+      <div className="mt-1 flex gap-1">
+        <button
+          onClick={() =>
+            emit("dev-show-post-meeting", SAMPLE_POST_MEETING).catch(console.warn)
+          }
+          className="px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-[10px] text-gray-300 transition-colors"
+        >
+          Simulate Post-Meeting
+        </button>
+      </div>
     </div>
   );
 }

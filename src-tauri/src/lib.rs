@@ -52,6 +52,8 @@ pub fn run() {
             commands::api_request,
             commands::send_meeting_status,
             commands::get_app_version,
+            commands::set_overlay_visible,
+            commands::start_overlay_reposition,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
