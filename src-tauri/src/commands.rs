@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use std::sync::LazyLock;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auth;
 use crate::process_detector::MeetingState;
@@ -63,6 +63,37 @@ pub fn get_api_url() -> String {
 #[tauri::command]
 pub fn get_app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+/// Show or hide the coaching overlay window independently of meeting state.
+///
+/// Used by the About modal's "Show coaching overlay" toggle. Visibility
+/// preference is persisted on the frontend (localStorage); this command is
+/// just the imperative to apply it.
+#[tauri::command]
+pub async fn set_overlay_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("overlay") {
+        if visible {
+            w.show().map_err(|e| e.to_string())?;
+        } else {
+            w.hide().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// Enter overlay reposition mode. Makes sure the overlay window is visible
+/// (so it can receive cursor events once click-through is toggled off on
+/// the frontend side) and fires the `overlay-reposition-enter` event that
+/// the overlay listens for.
+#[tauri::command]
+pub async fn start_overlay_reposition(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("overlay") {
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+    }
+    app.emit("overlay-reposition-enter", ())
+        .map_err(|e| e.to_string())
 }
 
 /// Hide the panel and overlay windows.
