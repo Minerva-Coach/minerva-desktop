@@ -4,6 +4,16 @@ import { apiFetch } from "../../lib/api";
 interface PostMeetingModalProps {
   meetingId: number;
   onClose: () => void;
+  /**
+   * Dev-only escape hatch — skip the API poll and render the given data
+   * immediately. Used by the Simulate button in DevMode for iterating on
+   * this modal without needing a real completed meeting.
+   */
+  mockData?: {
+    advice?: string;
+    actionItems?: ActionItem[];
+    decisions?: Decision[];
+  };
 }
 
 type AdviceState =
@@ -11,6 +21,16 @@ type AdviceState =
   | { kind: "ready"; text: string }
   | { kind: "empty" }
   | { kind: "error"; message: string };
+
+interface ActionItem {
+  description: string;
+  assignee?: string | null;
+}
+
+interface Decision {
+  summary: string;
+  participants?: string[];
+}
 
 // Poll every 15s while the meeting_persister is still working. Advice
 // generation is an LLM call that usually completes within a minute or two
@@ -28,11 +48,26 @@ const SUGGESTED_FOCUS: string[] = [
   "Reduce filler words when introducing yourself",
 ];
 
-export function PostMeetingModal({ meetingId, onClose }: PostMeetingModalProps) {
-  const [advice, setAdvice] = useState<AdviceState>({ kind: "loading" });
+export function PostMeetingModal({
+  meetingId,
+  onClose,
+  mockData,
+}: PostMeetingModalProps) {
+  const [advice, setAdvice] = useState<AdviceState>(() =>
+    mockData?.advice
+      ? { kind: "ready", text: mockData.advice }
+      : { kind: "loading" }
+  );
+  const [actionItems, setActionItems] = useState<ActionItem[]>(
+    mockData?.actionItems ?? []
+  );
+  const [decisions, setDecisions] = useState<Decision[]>(
+    mockData?.decisions ?? []
+  );
   const [rating, setRating] = useState<number>(3);
 
   useEffect(() => {
+    if (mockData) return; // dev: skip polling
     let cancelled = false;
     const startedAt = Date.now();
 
@@ -55,6 +90,14 @@ export function PostMeetingModal({ meetingId, onClose }: PostMeetingModalProps) 
           return;
         }
         const data = await resp.json();
+        // Productivity is populated alongside advice and may land on an
+        // earlier poll. Always sync it.
+        const prod = data.productivity ?? {};
+        if (!cancelled) {
+          setActionItems(prod.action_items ?? []);
+          setDecisions(prod.decisions ?? []);
+        }
+
         const text = (data.meeting_advice ?? "").trim();
         if (text) {
           if (!cancelled) setAdvice({ kind: "ready", text });
@@ -86,7 +129,7 @@ export function PostMeetingModal({ meetingId, onClose }: PostMeetingModalProps) 
     return () => {
       cancelled = true;
     };
-  }, [meetingId]);
+  }, [meetingId, mockData]);
 
   return (
     <div
@@ -137,6 +180,51 @@ export function PostMeetingModal({ meetingId, onClose }: PostMeetingModalProps) 
             </p>
           )}
         </section>
+
+        {actionItems.length > 0 && (
+          <section className="pt-2 border-t border-gray-800">
+            <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
+              Action Items ({actionItems.length})
+            </h3>
+            <ul className="space-y-1 text-[11px] text-gray-200">
+              {actionItems.map((item, i) => (
+                <li key={i} className="flex gap-1.5">
+                  <span className="text-blue-400">☐</span>
+                  <span className="flex-1">
+                    {item.description}
+                    {item.assignee && (
+                      <span className="text-gray-500"> — {item.assignee}</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {decisions.length > 0 && (
+          <section className="pt-2 border-t border-gray-800">
+            <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
+              Decisions ({decisions.length})
+            </h3>
+            <ul className="space-y-1 text-[11px] text-gray-200">
+              {decisions.map((d, i) => (
+                <li key={i} className="flex gap-1.5">
+                  <span className="text-green-400">✓</span>
+                  <span className="flex-1">
+                    {d.summary}
+                    {d.participants && d.participants.length > 0 && (
+                      <span className="text-gray-500">
+                        {" "}
+                        — {d.participants.join(", ")}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="pt-2 border-t border-gray-800">
           <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">

@@ -1,14 +1,21 @@
 import type { CompanionDataUpdate } from "../../types/coaching";
+import { CoachingTipCard } from "./CoachingTipCard";
 
 interface GaugesProps {
   chartData: CompanionDataUpdate | null;
+  hasBotInMeeting: boolean;
 }
 
 /**
  * Filler words and talk time gauges.
  * Data comes from companion_data_update SocketIO events.
+ *
+ * Three display states:
+ *   - chartData present → render live gauges
+ *   - in a meeting but no data yet → "Waiting for meeting data…"
+ *   - not in a meeting → rotating coaching tip (static, ships per release)
  */
-export function Gauges({ chartData }: GaugesProps) {
+export function Gauges({ chartData, hasBotInMeeting }: GaugesProps) {
   const fillerPct = chartData
     ? Math.round(chartData.data.filler_words.fraction * 100)
     : 0;
@@ -24,6 +31,17 @@ export function Gauges({ chartData }: GaugesProps) {
   const topFillers = chartData?.data.filler_words.top_2 ?? [];
 
   const hasData = chartData !== null;
+
+  if (!hasData && !hasBotInMeeting) {
+    return (
+      <div>
+        <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
+          Coaching Tips
+        </h3>
+        <CoachingTipCard />
+      </div>
+    );
+  }
 
   return (
     <div>

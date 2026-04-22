@@ -21,7 +21,11 @@ export function PanelWindow() {
   const { isConnected, activeMeetings, lastChartData } = useSocket(token);
   const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
-  const chartData = devChartData ?? lastChartData;
+  // Clear stats display when the bot isn't actively coaching — otherwise the
+  // previous meeting's numbers would linger visible into the next one.
+  // Dev-mode simulated data still shows up so the gauges UI can be
+  // developed outside of real meetings.
+  const chartData = devChartData ?? (hasBotInMeeting ? lastChartData : null);
   const { accounts, loading: accountsLoading, refresh: refreshAccounts } =
     useConnectedAccounts(isAuthenticated);
   const { inMeeting } = useMeetingStatus();
@@ -40,12 +44,31 @@ export function PanelWindow() {
 
   const [showAbout, setShowAbout] = useState(false);
   const [postMeetingId, setPostMeetingId] = useState<number | null>(null);
+  const [postMeetingMock, setPostMeetingMock] = useState<
+    React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
+  >(null);
 
   // Open About when the tray "About" menu item fires.
   useEffect(() => {
     const unlisten = listen("show-about", () => {
       setShowAbout(true);
     });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Dev-mode: Simulate Post-Meeting button in DevMode emits this event.
+  // Only effective when DevMode is rendered (i.e. under `tauri dev`), since
+  // nothing else fires this event in a release build.
+  useEffect(() => {
+    const unlisten = listen<typeof postMeetingMock>(
+      "dev-show-post-meeting",
+      (event) => {
+        setPostMeetingMock(event.payload);
+        setPostMeetingId(-1); // sentinel; the modal won't hit the API with mockData set
+      }
+    );
     return () => {
       unlisten.then((fn) => fn());
     };
@@ -277,7 +300,11 @@ export function PanelWindow() {
       {postMeetingId !== null && !showAbout && (
         <PostMeetingModal
           meetingId={postMeetingId}
-          onClose={() => setPostMeetingId(null)}
+          mockData={postMeetingMock ?? undefined}
+          onClose={() => {
+            setPostMeetingId(null);
+            setPostMeetingMock(null);
+          }}
         />
       )}
 
@@ -307,7 +334,7 @@ export function PanelWindow() {
               onRefresh={refreshAccounts}
             />
             {renderMeetingSection()}
-            <Gauges chartData={chartData} />
+            <Gauges chartData={chartData} hasBotInMeeting={hasBotInMeeting} />
             {import.meta.env.DEV && <DevMode />}
           </>
         )}
