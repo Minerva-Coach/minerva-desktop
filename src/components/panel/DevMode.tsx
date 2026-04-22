@@ -17,43 +17,96 @@ const SAMPLE_POST_MEETING = {
 };
 
 const SAMPLE_MESSAGES: Omit<CoachingMessage, "user_id" | "meeting_id" | "timestamp">[] = [
+  // Praise — one per core behavior
   {
-    text: "Great use of an open-ended question! This encourages deeper conversation.",
+    text: "Great open-ended question — keep digging.",
     message_type: "positive_reinforcement",
     priority: "normal",
     metadata: { behavior: "OE", behavior_name: "Open-ended Questions" },
   },
   {
-    text: "Try paraphrasing what they just said to show you're actively listening.",
-    message_type: "coaching_tip",
+    text: "Nice empathy move there.",
+    message_type: "positive_reinforcement",
     priority: "normal",
-    metadata: { behavior: "EEV", behavior_name: "Empathy & Validation" },
+    metadata: { behavior: "EEV", behavior_name: "Exploring Emotions or Values" },
   },
   {
-    text: "You've been speaking for a while. Consider pausing to let others contribute.",
-    message_type: "warning",
-    priority: "urgent",
-    color: "orange",
-    metadata: { behavior: "SS", behavior_name: "Speaking Share" },
-  },
-  {
-    text: "Nice summary statement! Keeps everyone aligned.",
+    text: "Good summary — that kept everyone aligned.",
     message_type: "positive_reinforcement",
     priority: "normal",
     metadata: { behavior: "SS", behavior_name: "Summarizing" },
   },
   {
-    text: "Consider acknowledging their concern before moving to the next topic.",
+    text: "Nice framing of your intent.",
+    message_type: "positive_reinforcement",
+    priority: "normal",
+    metadata: { behavior: "IA", behavior_name: "Intent Alignment" },
+  },
+  // Suggestions — one per core behavior
+  {
+    text: "This might be a good time for an open-ended question.",
     message_type: "coaching_tip",
     priority: "normal",
-    metadata: { behavior: "IA", behavior_name: "Inclusive Actions" },
+    metadata: {
+      behavior: "OE",
+      behavior_name: "Open-ended Questions",
+      suggestion_type: "behavior_not_used",
+    },
   },
   {
-    text: "Your filler word usage has increased. Try pausing instead of 'um'.",
+    text: "Consider exploring how they're feeling about this.",
+    message_type: "coaching_tip",
+    priority: "normal",
+    metadata: {
+      behavior: "EEV",
+      behavior_name: "Exploring Emotions or Values",
+      suggestion_type: "behavior_not_used",
+    },
+  },
+  {
+    text: "Try paraphrasing what they just said.",
+    message_type: "coaching_tip",
+    priority: "normal",
+    metadata: {
+      behavior: "SS",
+      behavior_name: "Summarizing",
+      suggestion_type: "behavior_not_used",
+    },
+  },
+  {
+    text: "Name your intent before the next topic shift.",
+    message_type: "coaching_tip",
+    priority: "normal",
+    metadata: {
+      behavior: "IA",
+      behavior_name: "Intent Alignment",
+      suggestion_type: "behavior_not_used",
+    },
+  },
+  // Warnings — one per warning type
+  {
+    text: "Your filler word usage has climbed — try pausing instead.",
     message_type: "priority_message",
-    priority: "urgent",
-    color: "yellow",
-    auto_dismiss_seconds: 15,
+    priority: "normal",
+    metadata: { warning_type: "filler_words" },
+  },
+  {
+    text: "You're speaking pretty fast — ease off and breathe.",
+    message_type: "coaching_tip",
+    priority: "normal",
+    metadata: { warning_type: "speaking_speed" },
+  },
+  {
+    text: "You've been doing most of the talking — make space for others.",
+    message_type: "priority_message",
+    priority: "normal",
+    metadata: { warning_type: "talk_time_excessive" },
+  },
+  {
+    text: "You've been quiet — consider jumping in.",
+    message_type: "priority_message",
+    priority: "low",
+    metadata: { warning_type: "talk_time_insufficient" },
   },
 ];
 

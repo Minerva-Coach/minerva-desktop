@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use std::sync::LazyLock;
 
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::auth;
 use crate::process_detector::MeetingState;
@@ -96,6 +96,30 @@ pub async fn start_overlay_reposition(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Open (or focus, if already open) the Icon Key window. This is a small
+/// standalone window the user can leave visible while they learn what
+/// each coaching icon means. Created on-demand rather than pre-declared
+/// in tauri.conf.json so it doesn't consume resources for users who
+/// never open it.
+#[tauri::command]
+pub async fn open_icon_key(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("icon-key") {
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "icon-key", WebviewUrl::App("index.html".into()))
+        .title("Minerva Icon Key")
+        .inner_size(380.0, 520.0)
+        .min_inner_size(300.0, 320.0)
+        .resizable(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Hide the panel and overlay windows.
 #[tauri::command]
 pub async fn hide_windows(app: AppHandle) -> Result<(), String> {
@@ -108,14 +132,23 @@ pub async fn hide_windows(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Show the panel and overlay windows.
+/// Show the panel and overlay windows, re-asserting their always-on-top
+/// status. Windows occasionally demotes TOPMOST windows when another app
+/// (Zoom) transitions into full-screen meeting mode, which can leave the
+/// panel minimized to the taskbar. We call `unminimize` + `show` +
+/// `set_always_on_top(true)` to recover from that state. No-op if the
+/// window is already visible and on-top.
 #[tauri::command]
 pub async fn show_windows(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("panel") {
+        let _ = w.unminimize();
         w.show().map_err(|e| e.to_string())?;
+        let _ = w.set_always_on_top(true);
     }
     if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.unminimize();
         w.show().map_err(|e| e.to_string())?;
+        let _ = w.set_always_on_top(true);
     }
     Ok(())
 }

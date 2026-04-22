@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { PanelWindow } from "./components/PanelWindow";
 import { OverlayWindow } from "./components/OverlayWindow";
+import { IconKeyWindow } from "./components/IconKeyWindow";
 import { UpdaterProvider } from "./contexts/updater-context";
 
 export default function App() {
@@ -25,6 +26,10 @@ export default function App() {
 
   if (windowLabel === "overlay") {
     return <OverlayWindow />;
+  }
+
+  if (windowLabel === "icon-key") {
+    return <IconKeyWindow />;
   }
 
   return null;

@@ -54,6 +54,7 @@ pub fn run() {
             commands::get_app_version,
             commands::set_overlay_visible,
             commands::start_overlay_reposition,
+            commands::open_icon_key,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

@@ -98,7 +98,7 @@ export function PostMeetingModal({
           setDecisions(prod.decisions ?? []);
         }
 
-        const text = (data.meeting_advice ?? "").trim();
+        const text = (data.meetingAdvice ?? "").trim();
         if (text) {
           if (!cancelled) setAdvice({ kind: "ready", text });
           return;
