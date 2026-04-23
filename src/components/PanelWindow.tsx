@@ -35,6 +35,18 @@ export function PanelWindow() {
     if (hasBotInMeeting) refreshAccounts();
   }, [hasBotInMeeting]);
 
+  // When the bot joins a meeting, Zoom often transitions to full-screen
+  // meeting mode which can demote always-on-top windows and occasionally
+  // minimize the panel on Windows. Defensively re-assert the panel's
+  // visibility on the false → true transition.
+  const prevHadBot = useRef(false);
+  useEffect(() => {
+    if (hasBotInMeeting && !prevHadBot.current) {
+      invoke("show_windows").catch(console.warn);
+    }
+    prevHadBot.current = hasBotInMeeting;
+  }, [hasBotInMeeting]);
+
   // Invite state
   const [inviteStatus, setInviteStatus] = useState<
     "idle" | "sending" | "sent" | "error"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import { useAuth } from "../hooks/use-auth";
@@ -55,6 +55,8 @@ export function OverlayWindow() {
     const unlistenEnter = listen("overlay-reposition-enter", () => {
       setVisible(true);
       setRepositioning(true);
+      // Focus the overlay so Esc reaches it — the panel had focus before.
+      getCurrentWebviewWindow().setFocus().catch(() => {});
     });
     const unlistenExit = listen("overlay-reposition-exit", () =>
       setRepositioning(false)
@@ -93,31 +95,24 @@ export function OverlayWindow() {
     }, 4000);
   }, []);
 
-  // Reposition mode: let the user drag the window. Clicking exits.
-  const dragStartedRef = useRef(false);
+  // Reposition mode: let the user drag the window. Also exit if the user
+  // "clicks" without moving (detected via position compare, because on
+  // Windows the native drag consumes the mouseup and no `click` event fires
+  // after startDragging() resolves).
   const handleRepositionMouseDown = useCallback(async (e: React.MouseEvent) => {
     if (!repositioning) return;
     e.preventDefault();
-    dragStartedRef.current = false;
+    const win = getCurrentWebviewWindow();
     try {
-      await getCurrentWebviewWindow().startDragging();
-      // startDragging() resolves after the drag ends. If the user actually
-      // moved the window, we mark it so the subsequent click doesn't also
-      // exit — treat drag as the primary action.
-      dragStartedRef.current = true;
+      const before = await win.outerPosition();
+      await win.startDragging();
+      const after = await win.outerPosition();
+      if (before.x === after.x && before.y === after.y) {
+        setRepositioning(false);
+      }
     } catch {
       /* ignore */
     }
-  }, [repositioning]);
-
-  const handleRepositionClick = useCallback(() => {
-    if (!repositioning) return;
-    // Finish reposition on a click that wasn't a drag.
-    if (dragStartedRef.current) {
-      dragStartedRef.current = false;
-      return;
-    }
-    setRepositioning(false);
   }, [repositioning]);
 
   // Esc exits reposition mode too.
@@ -138,13 +133,21 @@ export function OverlayWindow() {
           : ""
       }`}
       onMouseDown={handleRepositionMouseDown}
-      onClick={handleRepositionClick}
     >
       {repositioning && (
-        <div className="absolute inset-x-0 top-0 bg-black/70 text-white text-[10px] p-2 text-center pointer-events-none">
-          Drag to move
-          <br />
-          Click to finish
+        <div className="absolute inset-x-0 top-0 bg-black/70 text-white text-[10px] p-2 text-center pointer-events-none flex items-center justify-center gap-3">
+          <span>Drag to move</span>
+          <button
+            type="button"
+            className="pointer-events-auto bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-medium cursor-pointer"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setRepositioning(false);
+            }}
+          >
+            Done
+          </button>
         </div>
       )}
 

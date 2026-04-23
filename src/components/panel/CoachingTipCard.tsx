@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { COACHING_TIPS } from "../../constants/coaching_tips";
 
-const ROTATE_INTERVAL_MS = 20_000;
+const ROTATE_INTERVAL_MS = 5 * 60_000;
 
 /**
  * Rotating coaching tip shown when no meeting is active. Picks a random

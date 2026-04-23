@@ -72,6 +72,14 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
     }
   };
 
+  const openIconKey = async () => {
+    try {
+      await invoke("open_icon_key");
+    } catch (err) {
+      console.warn("open icon key failed:", err);
+    }
+  };
+
   const formatCheckedAt = (ts: number) => {
     const now = Date.now();
     const delta = Math.round((now - ts) / 1000);
@@ -192,6 +200,14 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
           title={overlayOn ? "Drag the overlay to a new position" : "Enable the overlay to reposition it"}
         >
           Reposition overlay
+        </button>
+
+        <button
+          onClick={openIconKey}
+          className="w-full px-2 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-[11px] text-gray-200 transition-colors"
+          title="Open the icon key in a separate window you can leave open"
+        >
+          Icon key
         </button>
 
         <div className="pt-2 border-t border-gray-800 space-y-1.5">
