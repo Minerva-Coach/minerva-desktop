@@ -48,14 +48,35 @@ To retrieve the key from GitHub for backup:
    once set. In that case, rotate to a new key now (see rotation procedure
    below) while you still control the ecosystem.
 
-### 2. Set a passphrase (optional, recommended)
+### 2. Set a passphrase on the existing key (REQUIRED before next release)
 
-The `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret is currently empty (see
-`.github/workflows/desktop-release.yml`). Setting it adds a second factor: a
-stolen key file alone is not enough to forge updates.
+The workflow now reads the passphrase from the
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` GitHub Actions secret (previously it
+was hardcoded to an empty string). Until the secret is set, the passphrase
+resolves to empty and the key is as exposed as it was before — a leaked
+secret file alone can sign.
 
-Tradeoff: both the key and the passphrase need to be backed up together, but
-someone who finds only one of them cannot sign.
+Procedure to add a passphrase without rotating the key (so existing
+installs keep auto-updating):
+
+1. Retrieve the current private key from your backup in the password
+   manager (you followed step 1 above, right?). If you don't have a
+   backup yet, you cannot re-encrypt — go back and do step 1.
+2. Re-encrypt it on a trusted machine:
+   ```bash
+   tauri signer sign -p "<new passphrase>" -w minerva-backup.key
+   ```
+   Or use `minisign -C -s minerva-backup.key` to change the passphrase
+   directly.
+3. Update the `TAURI_SIGNING_PRIVATE_KEY` GitHub secret to the new
+   encrypted blob.
+4. Create a new `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` GitHub secret with
+   the passphrase value.
+5. Back up both the encrypted key and the passphrase to your password
+   manager as separate entries.
+
+Tradeoff: both the key and the passphrase need to be backed up together,
+but someone who finds only one of them cannot sign.
 
 ### 3. Document who has access
 
