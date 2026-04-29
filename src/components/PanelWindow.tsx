@@ -29,7 +29,41 @@ export function PanelWindow() {
   const chartData = devChartData ?? (hasBotInMeeting ? lastChartData : null);
   const { accounts, loading: accountsLoading, refresh: refreshAccounts } =
     useConnectedAccounts(isAuthenticated);
-  const { inMeeting, meetingUrl } = useMeetingStatus();
+  const { inMeeting, meetingUrl: detectedUrl } = useMeetingStatus();
+
+  // Phase 2 host fill-in: when the cmdline-extracted URL has confno but no
+  // pwd= (typically because the user joined from Zoom's own upcoming-meetings
+  // tab rather than a calendar link), ask the backend to look up the
+  // password-bearing join_url via Zoom's /v2/meetings API. Only works for
+  // meetings the authenticated user *hosts* — Zoom 404s otherwise, which
+  // cleanly falls through to the existing one-click attempt → paste-modal
+  // path. See docs/planning/zoom-auto-join-url.md Phase 2.
+  const [augmentedUrl, setAugmentedUrl] = useState<string | null>(null);
+  const meetingUrl = augmentedUrl ?? detectedUrl;
+
+  useEffect(() => {
+    setAugmentedUrl(null);
+    if (!detectedUrl || detectedUrl.includes("?pwd=")) return;
+    const m = detectedUrl.match(/zoom\.us\/j\/(\d+)/);
+    if (!m) return;
+    const confno = m[1];
+
+    let cancelled = false;
+    apiFetch(`/api/zoom/meeting/${confno}/join-url`)
+      .then(async (resp) => {
+        if (cancelled || !resp.ok) return;
+        const data = await resp.json().catch(() => null);
+        if (cancelled) return;
+        if (data?.join_url) setAugmentedUrl(data.join_url);
+      })
+      .catch(() => {
+        // Soft failure — leave detectedUrl in place and let the existing
+        // one-click attempt → paste-fallback path handle it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detectedUrl]);
 
   // Re-fetch accounts when bot becomes active (verification creates new identities)
   useEffect(() => {
