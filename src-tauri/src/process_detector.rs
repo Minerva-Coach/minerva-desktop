@@ -126,40 +126,58 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
     });
 }
 
+/// Extract the value of a URL query parameter from a string. Stops at any
+/// character that can't legally appear in a URL query value as it sits on
+/// a process command line: `&` (next param), whitespace, NUL, or quotes.
+fn extract_url_param(haystack: &str, name: &str) -> Option<String> {
+    let needle = format!("{name}=");
+    let pos = haystack.find(&needle)?;
+    let after = &haystack[pos + needle.len()..];
+    let value: String = after
+        .chars()
+        .take_while(|c| !matches!(c, '&' | ' ' | '\t' | '\n' | '\r' | '\0' | '"' | '\''))
+        .collect();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+/// Build a Zoom join URL from a process command line.
+///
+/// Zoom's launch URL on the cmdline looks like
+/// `zoommtg://zoom.us/join?action=join&confno=XXXXX&pwd=YYYY&uname=Z...`.
+/// We extract `confno` and `pwd` and reconstruct
+/// `https://zoom.us/j/{confno}?pwd={pwd}` — the same form Recall.ai expects.
+/// When `pwd` is missing we fall back to the bare `https://zoom.us/j/{confno}`
+/// and let the caller decide what to do (Phase 1 tries it once and falls back
+/// to a paste-link popup on failure).
+fn build_zoom_url_from_cmdline(cmdline: &str) -> Option<String> {
+    let confno = extract_url_param(cmdline, "confno")?;
+    if !confno.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let url = match extract_url_param(cmdline, "pwd") {
+        Some(pwd) => format!("https://zoom.us/j/{confno}?pwd={pwd}"),
+        None => format!("https://zoom.us/j/{confno}"),
+    };
+    log::debug!("Extracted Zoom meeting URL: {url}");
+    Some(url)
+}
+
 /// Extract the Zoom meeting URL from the process command line.
 ///
-/// On Linux, reads `/proc/{pid}/cmdline` for the main zoom process.
-/// The cmdline contains `zoommtg://zoom.us/join?...&confno=XXXXXXX&...`
-/// which we parse to construct `https://zoom.us/j/{confno}`.
+/// Zoom's desktop client receives its launch URL (`zoommtg://...`) on the
+/// command line of the active meeting process. We read that line per-platform
+/// and feed it through `build_zoom_url_from_cmdline()` to produce the
+/// Recall-compatible `https://zoom.us/j/{confno}?pwd={pwd}` form.
 ///
-/// LIMITATION: This extracts the meeting number but NOT the password.
-/// Password-protected meetings (nearly all real meetings) need the full
-/// URL with `?pwd=...` which is only available from the calendar invite
-/// or Zoom's "Copy Invite Link" UI. This function is kept for future use.
-///
-/// FUTURE: Eliminate manual URL paste entirely via platform integrations:
-///
-/// Zoom Marketplace App (requires Zoom Marketplace approval):
-///   - Register a Zoom Marketplace app with `meeting:read` scope
-///   - Subscribe to `meeting.started` webhook events
-///   - When a user with our app installed joins a meeting, Zoom pushes
-///     the event with full meeting details (ID, password, host, etc.)
-///   - Backend receives webhook → auto-dispatches Recall bot
-///   - Desktop app just shows "Minerva is joining..." with no user action
-///   - See: https://developers.zoom.us/docs/api/rest/reference/zoom-api/methods/#operation/meetings
-///
-/// Microsoft Teams App (requires Teams Admin approval):
-///   - Register a Teams bot via Azure Bot Service + Teams app manifest
-///   - Use Microsoft Graph `onlineMeeting` subscriptions or
-///     `callRecords` change notifications to detect meeting start
-///   - Graph API provides join URL directly: GET /me/onlineMeetings
-///   - Backend receives notification → auto-dispatches Recall bot
-///   - Same zero-action UX as Zoom Marketplace
-///   - See: https://learn.microsoft.com/en-us/graph/api/resources/onlinemeeting
-///
-/// Both approaches make the desktop app's "paste link" flow obsolete —
-/// the bot joins automatically for any user who has installed the
-/// platform app. The desktop app becomes purely a coaching display.
+/// Returns `None` when no Zoom process is in a meeting, or when the cmdline
+/// is missing the expected params (manual ID entry, in-app upcoming-meetings
+/// join, or — on macOS — when `ps` truncated the arg list before `pwd=`).
+/// See `docs/planning/zoom-auto-join-url.md` for the broader rollout plan
+/// (Phase 2 backfills the missing-`pwd` case via Zoom OAuth for hosts).
 fn extract_zoom_meeting_url() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
@@ -174,7 +192,9 @@ fn extract_zoom_meeting_url() -> Option<String> {
             // Read /proc/{pid}/cmdline (null-separated args)
             if let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) {
                 let cmdline = cmdline.replace('\0', " ");
-                // Look for confno= parameter
+                // NOTE: Linux support is being deprecated; pwd= parsing was
+                // intentionally not extended here. The bare confno URL is
+                // preserved for legacy installs only.
                 if let Some(pos) = cmdline.find("confno=") {
                     let after = &cmdline[pos + 7..];
                     let confno: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -191,20 +211,23 @@ fn extract_zoom_meeting_url() -> Option<String> {
 
     #[cfg(target_os = "macos")]
     {
-        // macOS: use `ps` to get command line arguments
-        let output = Command::new("ps")
-            .args(["-eo", "args"])
-            .output()
-            .ok()?;
+        // macOS: use `ps -eo args` to get command lines for all processes.
+        //
+        // TODO(macOS truncation): `ps` truncates each arg list to ~512 chars.
+        // The `pwd=` param on a real Zoom invite often falls past that
+        // boundary, in which case we'll see `confno` but no `pwd` and the
+        // caller will fall through to the paste-link popup. Proper fix:
+        // call `sysctlbyname("kern.procargs2", ...)` (or the equivalent
+        // CTL_KERN/KERN_PROCARGS2 mib) for each Zoom PID to read the
+        // untruncated argv directly from the kernel. Stubbed here for now;
+        // will be addressed once we have a Mac dev box. See planning doc
+        // open question 2 in docs/planning/zoom-auto-join-url.md.
+        let output = Command::new("ps").args(["-eo", "args"]).output().ok()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             if line.contains("zoom.us") && line.contains("confno=") {
-                if let Some(pos) = line.find("confno=") {
-                    let after = &line[pos + 7..];
-                    let confno: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-                    if !confno.is_empty() {
-                        return Some(format!("https://zoom.us/j/{confno}"));
-                    }
+                if let Some(url) = build_zoom_url_from_cmdline(line) {
+                    return Some(url);
                 }
             }
         }
@@ -213,7 +236,8 @@ fn extract_zoom_meeting_url() -> Option<String> {
 
     #[cfg(target_os = "windows")]
     {
-        // TODO: Use Windows API to get process command line
+        // TODO(Phase 1.2): Read Zoom.exe's cmdline via PowerShell CIM and
+        // feed it through build_zoom_url_from_cmdline().
         None
     }
 }
