@@ -7,7 +7,6 @@
 //! - `meeting-started` when an active Zoom meeting is detected
 //! - `meeting-stopped` when the meeting ends (or Zoom closes)
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -236,8 +235,71 @@ fn extract_zoom_meeting_url() -> Option<String> {
 
     #[cfg(target_os = "windows")]
     {
-        // TODO(Phase 1.2): Read Zoom.exe's cmdline via PowerShell CIM and
-        // feed it through build_zoom_url_from_cmdline().
+        use std::os::windows::process::CommandExt;
+
+        // CREATE_NO_WINDOW: avoid flashing a console window when spawning
+        // powershell from the GUI process.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+        // Read Zoom.exe's command line via PowerShell CIM. Get-CimInstance
+        // is fast (~200-400ms) and works on Windows 10/11 without elevation
+        // because we read processes owned by the same user. The Filter
+        // clause is restricted to a numeric PID we control, so no injection
+        // surface. We use [Console]::Out.Write to bypass PowerShell's
+        // default formatter, which otherwise wraps long lines at the
+        // console buffer width and would chop the `pwd=` parameter mid-token.
+        //
+        // FUTURE (option 3 in plan): if PowerShell latency or AV heuristics
+        // become problems, drop the spawn and call NtQueryInformationProcess
+        // (ProcessBasicInformation) → read PEB →
+        // RTL_USER_PROCESS_PARAMETERS.CommandLine via ReadProcessMemory.
+        // Sub-millisecond, no child process. The `windows` crate is already
+        // a dep. Skipped for now to keep the change small.
+        //
+        // SECURITY: powershell.exe is signed by Microsoft and shipped with
+        // Windows; spawning it is benign in itself. Once the Tauri binary
+        // is Authenticode-signed for release, AV reputation should follow.
+        // If AV still flags an unsigned binary spawning powershell, the
+        // option-3 PEB read above is the cleanest mitigation.
+
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        let zoom_pids: Vec<u32> = sys
+            .processes()
+            .values()
+            .filter(|p| p.name().to_string_lossy().eq_ignore_ascii_case("zoom.exe"))
+            .map(|p| p.pid().as_u32())
+            .collect();
+
+        for pid in zoom_pids {
+            let script = format!(
+                "[Console]::Out.Write((Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine)"
+            );
+            let output = match Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+            {
+                Ok(o) => o,
+                Err(e) => {
+                    log::debug!("powershell spawn failed for PID {pid}: {e}");
+                    continue;
+                }
+            };
+            if !output.status.success() {
+                continue;
+            }
+            let cmdline = String::from_utf8_lossy(&output.stdout);
+            if cmdline.contains("confno=") {
+                if let Some(url) = build_zoom_url_from_cmdline(&cmdline) {
+                    return Some(url);
+                }
+            }
+        }
         None
     }
 }
