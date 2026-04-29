@@ -61,6 +61,11 @@
         ]
       }
     },
+    "windows": {
+      "nsis": {
+        "installMode": "both"
+      }
+    },
     "createUpdaterArtifacts": true
   },
   "plugins": {
