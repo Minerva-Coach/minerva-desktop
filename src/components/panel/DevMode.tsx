@@ -206,6 +206,35 @@ export function DevMode() {
           Simulate Post-Meeting
         </button>
       </div>
+      <div className="mt-1 flex gap-1 flex-wrap">
+        <button
+          onClick={() =>
+            emit("meeting-started", {
+              meeting_url: "https://zoom.us/j/1234567890?pwd=devmodepassword",
+            }).catch(console.warn)
+          }
+          className="px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-[10px] text-gray-300 transition-colors"
+          title="Fire meeting-started with a full URL (one-click button path)"
+        >
+          Sim Meeting (URL)
+        </button>
+        <button
+          onClick={() =>
+            emit("meeting-started", { meeting_url: null }).catch(console.warn)
+          }
+          className="px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-[10px] text-gray-300 transition-colors"
+          title="Fire meeting-started with no URL (paste-fallback path)"
+        >
+          Sim Meeting (no URL)
+        </button>
+        <button
+          onClick={() => emit("meeting-stopped").catch(console.warn)}
+          className="px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-[10px] text-gray-300 transition-colors"
+          title="Fire meeting-stopped"
+        >
+          Sim End
+        </button>
+      </div>
     </div>
   );
 }

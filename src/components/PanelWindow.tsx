@@ -13,6 +13,7 @@ import { Gauges } from "./panel/Gauges";
 import { DevMode } from "./panel/DevMode";
 import { AboutModal } from "./panel/AboutModal";
 import { PostMeetingModal } from "./panel/PostMeetingModal";
+import { PasteLinkModal } from "./panel/PasteLinkModal";
 import { apiFetch } from "../lib/api";
 
 export function PanelWindow() {
@@ -28,7 +29,7 @@ export function PanelWindow() {
   const chartData = devChartData ?? (hasBotInMeeting ? lastChartData : null);
   const { accounts, loading: accountsLoading, refresh: refreshAccounts } =
     useConnectedAccounts(isAuthenticated);
-  const { inMeeting } = useMeetingStatus();
+  const { inMeeting, meetingUrl } = useMeetingStatus();
 
   // Re-fetch accounts when bot becomes active (verification creates new identities)
   useEffect(() => {
@@ -53,6 +54,8 @@ export function PanelWindow() {
   >("idle");
   const [inviteError, setInviteError] = useState("");
   const [pastedUrl, setPastedUrl] = useState("");
+  const [pasteModalOpen, setPasteModalOpen] = useState(false);
+  const [pasteModalInitialError, setPasteModalInitialError] = useState("");
 
   const [showAbout, setShowAbout] = useState(false);
   const [postMeetingId, setPostMeetingId] = useState<number | null>(null);
@@ -127,12 +130,11 @@ export function PanelWindow() {
     }
   };
 
-  const handleInvite = async () => {
-    const url = pastedUrl.trim();
-    if (!url) return;
-    setInviteStatus("sending");
-    setInviteError("");
-
+  // Single dispatch path used by the inline paste form, the one-click
+  // detected-URL button, and the paste-fallback modal.
+  const dispatchInvite = async (
+    url: string
+  ): Promise<{ ok: boolean; error?: string }> => {
     try {
       const resp = await apiFetch("/api/meetings", {
         method: "POST",
@@ -142,22 +144,49 @@ export function PanelWindow() {
           manual_join: true,
         }),
       });
-
-      if (resp.ok) {
-        setInviteStatus("sent");
-        setPastedUrl("");
-      } else if (resp.status === 402) {
-        setInviteStatus("error");
-        setInviteError("Subscription required");
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        setInviteStatus("error");
-        setInviteError(data.error || `Failed (${resp.status})`);
-      }
+      if (resp.ok) return { ok: true };
+      if (resp.status === 402) return { ok: false, error: "Subscription required" };
+      const data = await resp.json().catch(() => ({}));
+      return { ok: false, error: data.error || `Failed (${resp.status})` };
     } catch {
-      setInviteStatus("error");
-      setInviteError("Network error");
+      return { ok: false, error: "Network error" };
     }
+  };
+
+  const handleInvite = async () => {
+    const url = pastedUrl.trim();
+    if (!url) return;
+    setInviteStatus("sending");
+    setInviteError("");
+    const result = await dispatchInvite(url);
+    if (result.ok) {
+      setInviteStatus("sent");
+      setPastedUrl("");
+    } else {
+      setInviteStatus("error");
+      setInviteError(result.error ?? "Failed");
+    }
+  };
+
+  const handleOneClickInvite = async () => {
+    if (!meetingUrl) return;
+    setInviteStatus("sending");
+    setInviteError("");
+    const result = await dispatchInvite(meetingUrl);
+    if (result.ok) {
+      setInviteStatus("sent");
+    } else {
+      // One-click failed — surface the paste-link modal with the error so
+      // the user can copy the full invite link (with password) from Zoom.
+      setInviteStatus("idle");
+      setPasteModalInitialError(result.error ?? "Couldn't add Minerva automatically");
+      setPasteModalOpen(true);
+    }
+  };
+
+  const openPasteModal = () => {
+    setPasteModalInitialError("");
+    setPasteModalOpen(true);
   };
 
   const handleHide = async () => {
@@ -229,7 +258,35 @@ export function PanelWindow() {
       );
     }
 
-    // Meeting detected, no bot — paste invite link
+    // Meeting detected, no bot — pick UI based on whether the Rust
+    // process detector extracted a join URL from Zoom's command line.
+    if (meetingUrl) {
+      return (
+        <div className="space-y-1.5">
+          <button
+            onClick={handleOneClickInvite}
+            disabled={inviteStatus === "sending"}
+            className="w-full px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-xs font-medium transition-colors"
+          >
+            {inviteStatus === "sending" ? "Adding…" : "Add Minerva to this meeting"}
+          </button>
+          {inviteStatus === "error" && (
+            <p className="text-[10px] text-red-400">{inviteError}</p>
+          )}
+          <button
+            onClick={openPasteModal}
+            className="w-full text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Paste a different link
+          </button>
+        </div>
+      );
+    }
+
+    // No URL detected — fall back to inline paste field. Happens when the
+    // user joined from Zoom's own upcoming-meetings tab or typed an ID
+    // manually, so the launch URL never hit Zoom.exe's cmdline. Phase 2
+    // will narrow this case for hosts via the Zoom OAuth API.
     return (
       <div className="space-y-1.5">
         <p className="text-[10px] text-gray-400">
@@ -316,6 +373,18 @@ export function PanelWindow() {
           onClose={() => {
             setPostMeetingId(null);
             setPostMeetingMock(null);
+          }}
+        />
+      )}
+
+      {pasteModalOpen && !showAbout && postMeetingId === null && (
+        <PasteLinkModal
+          initialError={pasteModalInitialError || undefined}
+          onSubmit={dispatchInvite}
+          onSent={() => setInviteStatus("sent")}
+          onClose={() => {
+            setPasteModalOpen(false);
+            setPasteModalInitialError("");
           }}
         />
       )}
