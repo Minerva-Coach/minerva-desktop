@@ -32,6 +32,7 @@ const EMPTY: ConnectedAccounts = {
 export function useConnectedAccounts(isAuthenticated: boolean) {
   const [accounts, setAccounts] = useState<ConnectedAccounts>(EMPTY);
   const [loading, setLoading] = useState(false);
+  const [hasResolved, setHasResolved] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -46,12 +47,19 @@ export function useConnectedAccounts(isAuthenticated: boolean) {
       console.warn("Failed to fetch connected accounts:", e);
     } finally {
       setLoading(false);
+      setHasResolved(true);
     }
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      // Reset on sign-out so a subsequent sign-in re-gates correctly.
+      setAccounts(EMPTY);
+      setHasResolved(false);
+      return;
+    }
     refresh();
-  }, [refresh]);
+  }, [isAuthenticated, refresh]);
 
-  return { accounts, loading, refresh };
+  return { accounts, loading, hasResolved, refresh };
 }

@@ -14,6 +14,7 @@ import { DevMode } from "./panel/DevMode";
 import { AboutModal } from "./panel/AboutModal";
 import { PostMeetingModal } from "./panel/PostMeetingModal";
 import { PasteLinkModal } from "./panel/PasteLinkModal";
+import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
 import { apiFetch } from "../lib/api";
 
 export function PanelWindow() {
@@ -27,8 +28,14 @@ export function PanelWindow() {
   // Dev-mode simulated data still shows up so the gauges UI can be
   // developed outside of real meetings.
   const chartData = devChartData ?? (hasBotInMeeting ? lastChartData : null);
-  const { accounts, loading: accountsLoading, refresh: refreshAccounts } =
-    useConnectedAccounts(isAuthenticated);
+  const {
+    accounts,
+    loading: accountsLoading,
+    hasResolved: accountsResolved,
+    refresh: refreshAccounts,
+  } = useConnectedAccounts(isAuthenticated);
+  const hasPlatformConnected =
+    accounts.zoom.connected || accounts.teams.connected;
   const { inMeeting, meetingUrl: detectedUrl } = useMeetingStatus();
 
   // Phase 2 host fill-in: when the cmdline-extracted URL has confno but no
@@ -441,6 +448,15 @@ export function PanelWindow() {
               Sign in to Minerva
             </button>
           </div>
+        ) : !accountsResolved ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+            <p className="text-[10px] text-gray-500">Loading your account…</p>
+          </div>
+        ) : !hasPlatformConnected ? (
+          <ConnectPlatformGate
+            accounts={accounts}
+            onRefresh={refreshAccounts}
+          />
         ) : (
           <>
             <AccountStatus
