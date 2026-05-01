@@ -18,7 +18,7 @@ mod tray;
 
 use std::sync::Arc;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use process_detector::MeetingState;
 use socket_proxy::SocketState;
@@ -31,6 +31,23 @@ pub fn run() {
     let socket_state = Arc::new(SocketState::new());
 
     tauri::Builder::default()
+        // Single-instance must be registered first so a second launch is
+        // intercepted before any windows are built. The callback runs on the
+        // *existing* instance — surface the panel and let the frontend show
+        // a "Minerva is already running" hint so the user learns the tray
+        // icon is the right entry point.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("panel") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_always_on_top(true);
+                let _ = w.set_focus();
+            }
+            if let Some(w) = app.get_webview_window("overlay") {
+                let _ = w.show();
+            }
+            let _ = app.emit("second-instance-launched", ());
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -55,6 +72,8 @@ pub fn run() {
             commands::set_overlay_visible,
             commands::start_overlay_reposition,
             commands::open_icon_key,
+            commands::is_welcome_acknowledged,
+            commands::acknowledge_welcome,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -124,6 +143,19 @@ pub fn run() {
                             y: overlay_y,
                         });
                     }
+                }
+            }
+
+            // Auto-show the panel on launches where the user has never
+            // acknowledged the welcome flow. This covers both fresh installs
+            // (panel pops up so the user lands in sign-in / connect) and the
+            // first launch after upgrading to a build that introduces the
+            // welcome screen — existing users get a one-time tour pointing
+            // out the tray icon and how Minerva runs in the background.
+            if !commands::welcome_acknowledged(&handle) {
+                if let Some(panel) = app.get_webview_window("panel") {
+                    let _ = panel.show();
+                    let _ = panel.set_focus();
                 }
             }
 

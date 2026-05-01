@@ -1,5 +1,6 @@
 //! Tauri IPC commands exposed to the React frontend.
 
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -10,6 +11,22 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder
 use crate::auth;
 use crate::process_detector::MeetingState;
 use crate::socket_proxy::SocketState;
+
+/// Filesystem location of the marker file that records whether the user has
+/// dismissed the post-onboarding welcome screen. Stored in the app's
+/// per-user data dir so it survives updates but is per-installation.
+fn welcome_marker_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("welcome_acknowledged"))
+}
+
+/// Non-command helper used by `lib.rs` setup to decide whether to auto-show
+/// the panel at startup.
+pub fn welcome_acknowledged(app: &AppHandle) -> bool {
+    welcome_marker_path(app)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+}
 
 /// Shared reqwest client — accepts self-signed certs in debug builds.
 /// Redirect following is disabled so we can detect auth failures (302 → /login).
@@ -224,4 +241,22 @@ pub async fn send_meeting_status(
         )
         .await
         .map_err(|e| format!("Failed to emit meeting_status: {e}"))
+}
+
+/// Whether the user has dismissed the post-onboarding welcome screen.
+/// Frontend uses this to decide whether to render the welcome step.
+#[tauri::command]
+pub fn is_welcome_acknowledged(app: AppHandle) -> bool {
+    welcome_acknowledged(&app)
+}
+
+/// Persist the user's acknowledgement of the welcome screen by creating an
+/// empty marker file. Idempotent — safe to call repeatedly.
+#[tauri::command]
+pub fn acknowledge_welcome(app: AppHandle) -> Result<(), String> {
+    let path = welcome_marker_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, b"").map_err(|e| e.to_string())
 }

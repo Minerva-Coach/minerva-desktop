@@ -7,6 +7,7 @@ import { useSocket } from "../hooks/use-socket";
 import { useDevChartData } from "../hooks/use-dev-events";
 import { useConnectedAccounts } from "../hooks/use-connected-accounts";
 import { useMeetingStatus } from "../hooks/use-meeting-status";
+import { useWelcomeAcknowledged } from "../hooks/use-welcome-acknowledged";
 import { useUpdaterContext } from "../contexts/updater-context";
 import { AccountStatus } from "./panel/AccountStatus";
 import { Gauges } from "./panel/Gauges";
@@ -15,6 +16,7 @@ import { AboutModal } from "./panel/AboutModal";
 import { PostMeetingModal } from "./panel/PostMeetingModal";
 import { PasteLinkModal } from "./panel/PasteLinkModal";
 import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
+import { WelcomeComplete } from "./panel/WelcomeComplete";
 import { apiFetch } from "../lib/api";
 
 export function PanelWindow() {
@@ -36,6 +38,8 @@ export function PanelWindow() {
   } = useConnectedAccounts(isAuthenticated);
   const hasPlatformConnected =
     accounts.zoom.connected || accounts.teams.connected;
+  const { acknowledged: welcomeAcknowledged, acknowledge: acknowledgeWelcome } =
+    useWelcomeAcknowledged();
   const { inMeeting, meetingUrl: detectedUrl } = useMeetingStatus();
 
   // Phase 2 host fill-in: when the cmdline-extracted URL has confno but no
@@ -103,6 +107,25 @@ export function PanelWindow() {
   const [postMeetingMock, setPostMeetingMock] = useState<
     React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
   >(null);
+
+  // Banner shown when the user re-launches the app while it's already
+  // running. Single-instance plugin in Rust intercepts the second launch
+  // and emits `second-instance-launched`; we surface that here so the user
+  // realizes the app was in the tray the whole time.
+  const [secondInstanceBanner, setSecondInstanceBanner] = useState(false);
+  useEffect(() => {
+    const unlisten = listen("second-instance-launched", () => {
+      setSecondInstanceBanner(true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+  useEffect(() => {
+    if (!secondInstanceBanner) return;
+    const id = setTimeout(() => setSecondInstanceBanner(false), 8000);
+    return () => clearTimeout(id);
+  }, [secondInstanceBanner]);
 
   // Open About when the tray "About" menu item fires.
   useEffect(() => {
@@ -400,6 +423,22 @@ export function PanelWindow() {
         </div>
       )}
 
+      {secondInstanceBanner && (
+        <div className="px-3 py-1.5 bg-amber-900/40 border-b border-amber-800/60 text-[10px] text-amber-100 flex items-start justify-between gap-2">
+          <span className="leading-relaxed">
+            Minerva was already running. Look for its icon in your system tray
+            to open it next time.
+          </span>
+          <button
+            onClick={() => setSecondInstanceBanner(false)}
+            className="text-amber-200 hover:text-white shrink-0"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {showAbout && (
         <AboutModal
           onClose={() => setShowAbout(false)}
@@ -457,6 +496,12 @@ export function PanelWindow() {
             accounts={accounts}
             onRefresh={refreshAccounts}
           />
+        ) : welcomeAcknowledged === null ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+            <p className="text-[10px] text-gray-500">Loading…</p>
+          </div>
+        ) : !welcomeAcknowledged ? (
+          <WelcomeComplete onAcknowledge={acknowledgeWelcome} />
         ) : (
           <>
             <AccountStatus
