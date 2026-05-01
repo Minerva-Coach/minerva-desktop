@@ -56,7 +56,11 @@ const IDLE_WINDOW_TITLES: &[&str] = &[
 /// Additionally: if PipeWire/PulseAudio shows "ZOOM VoiceEngine" as an active
 /// audio client, that's a strong signal of an active meeting (voice engine only
 /// runs during calls).
+// Reserved for the PipeWire-based meeting heuristic in `has_zoom_audio_client`
+// below, which is not yet wired into the detection loop. Wire up or delete
+// alongside that fn — see docs/planning/zoom-auto-join-url.md.
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 const AUDIO_MEETING_SIGNAL: &str = "zoom voiceengine";
 
 /// Shared state for current meeting status.
@@ -128,6 +132,7 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
 /// Extract the value of a URL query parameter from a string. Stops at any
 /// character that can't legally appear in a URL query value as it sits on
 /// a process command line: `&` (next param), whitespace, NUL, or quotes.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn extract_url_param(haystack: &str, name: &str) -> Option<String> {
     let needle = format!("{name}=");
     let pos = haystack.find(&needle)?;
@@ -152,6 +157,7 @@ fn extract_url_param(haystack: &str, name: &str) -> Option<String> {
 /// When `pwd` is missing we fall back to the bare `https://zoom.us/j/{confno}`
 /// and let the caller decide what to do (Phase 1 tries it once and falls back
 /// to a paste-link popup on failure).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn build_zoom_url_from_cmdline(cmdline: &str) -> Option<String> {
     let confno = extract_url_param(cmdline, "confno")?;
     if !confno.chars().all(|c| c.is_ascii_digit()) {
@@ -538,7 +544,9 @@ fn has_meeting_window_xdotool() -> bool {
 
 /// Check if ZOOM VoiceEngine is registered as a PipeWire audio client.
 /// This only exists when Zoom is actively in a meeting with audio.
+/// Not yet wired into the detection loop — see notes on `AUDIO_MEETING_SIGNAL`.
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 fn has_zoom_audio_client() -> bool {
     // Try wpctl (PipeWire)
     if let Ok(output) = Command::new("wpctl").arg("status").output() {
