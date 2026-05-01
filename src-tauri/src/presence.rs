@@ -40,7 +40,8 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
             if in_meeting {
                 // Only heartbeat every HEARTBEAT_INTERVAL worth of IDLE_CHECK_INTERVAL ticks
                 let should_heartbeat = !was_in_meeting
-                    || heartbeat_counter % (HEARTBEAT_INTERVAL.as_secs() / IDLE_CHECK_INTERVAL.as_secs()) == 0;
+                    || heartbeat_counter
+                        .is_multiple_of(HEARTBEAT_INTERVAL.as_secs() / IDLE_CHECK_INTERVAL.as_secs());
 
                 if should_heartbeat {
                     if let Some(token) = auth::get_token() {
