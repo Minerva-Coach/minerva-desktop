@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegram/nicegram-app/refs/heads/main/nicegram-features/nicegram-assistant/nicegram-assistant-js/node_modules/@anthropic-ai/sdk/node_modules/@tauri-apps/cli/config.schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "Minerva Coach",
   "version": "0.1.9",
   "identifier": "com.minervacoach.desktop",

@@ -172,12 +172,24 @@ fn is_in_active_meeting_macos() -> bool {
 4. macOS may use different titles (e.g., "Zoom Meeting" instead of "Meeting")
 5. Use: `osascript -e 'tell application "System Events" to tell process "zoom.us" to get name of every window'`
 
+## Do not "fix" the `$schema` URL in `tauri.conf.json`
+
+The correct value is `https://schema.tauri.app/config/2` (Tauri v2 official
+schema endpoint). AI assistants — including Claude — have a known habit of
+rewriting this line to a hallucinated URL like
+`https://raw.githubusercontent.com/nicegram/nicegram-app/.../node_modules/@anthropic-ai/sdk/node_modules/@tauri-apps/cli/config.schema.json`,
+which 404s. The bad URL was introduced when the app was first scaffolded and
+re-emitted on every full rewrite of this file. If you see it, replace it with
+`https://schema.tauri.app/config/2` and do not let an assistant "correct" it.
+
 ## Release Process
 
 ```bash
-# 1. Bump version in both files (must match):
+# 1. Bump version in all four files (must match — CI verifies the first three):
 #    - desktop_app/src-tauri/tauri.conf.json ("version": "X.Y.Z")
+#    - desktop_app/package.json ("version": "X.Y.Z")
 #    - desktop_app/src-tauri/Cargo.toml (version = "X.Y.Z")
+#    - desktop_app/src-tauri/Cargo.lock (minerva-desktop entry)
 
 # 2. Commit and tag
 git add -A && git commit -m "chore: bump desktop app to vX.Y.Z"
