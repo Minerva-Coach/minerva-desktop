@@ -260,3 +260,74 @@ pub fn acknowledge_welcome(app: AppHandle) -> Result<(), String> {
     }
     std::fs::write(&path, b"").map_err(|e| e.to_string())
 }
+
+// --- macOS Screen Recording permission --------------------------------------
+//
+// Reading other apps' window titles on macOS requires the Screen Recording
+// permission (TCC). We expose three thin Tauri commands so the React layer
+// can:
+//   1. detect the current state without prompting,
+//   2. fire the system-level dialog the first time,
+//   3. deep-link to System Settings if the user dismissed the dialog.
+//
+// Apps cannot grant themselves TCC — the user has to physically toggle the
+// switch and (in the typical case) relaunch the app for the new permission
+// to take effect. The frontend onboarding screen guides them through that.
+//
+// Non-macOS builds expose stubs so the frontend can call uniformly.
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
+/// Returns "granted" or "denied" without prompting the user.
+/// Cheap — checks the TCC database in-process.
+#[tauri::command]
+pub fn macos_screen_recording_status() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: CGPreflightScreenCaptureAccess is a leaf C function with
+        // no preconditions; safe on any thread.
+        if unsafe { CGPreflightScreenCaptureAccess() } {
+            "granted"
+        } else {
+            "denied"
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "granted"
+    }
+}
+
+/// Triggers the system Screen Recording prompt. The OS only shows the dialog
+/// the very first time per binary identity; subsequent calls are a no-op
+/// from the user's perspective. Frontend should call
+/// `macos_open_screen_recording_settings` as a fallback if the dialog
+/// doesn't appear.
+#[tauri::command]
+pub fn macos_request_screen_recording() {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: see preflight above. Ignored return (we re-check via
+        // the preflight call after the dialog closes).
+        let _ = unsafe { CGRequestScreenCaptureAccess() };
+    }
+}
+
+/// Open System Settings → Privacy & Security → Screen Recording.
+/// Used when the user dismissed the system dialog or for re-grants on
+/// macOS 15 Sequoia's weekly re-prompt cadence.
+#[tauri::command]
+pub fn macos_open_screen_recording_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

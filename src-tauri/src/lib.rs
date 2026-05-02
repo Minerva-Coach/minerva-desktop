@@ -74,6 +74,9 @@ pub fn run() {
             commands::open_icon_key,
             commands::is_welcome_acknowledged,
             commands::acknowledge_welcome,
+            commands::macos_screen_recording_status,
+            commands::macos_request_screen_recording,
+            commands::macos_open_screen_recording_settings,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

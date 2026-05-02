@@ -16,10 +16,17 @@ import { AboutModal } from "./panel/AboutModal";
 import { PostMeetingModal } from "./panel/PostMeetingModal";
 import { PasteLinkModal } from "./panel/PasteLinkModal";
 import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
+import { MacosPermissionGate } from "./panel/MacosPermissionGate";
 import { WelcomeComplete } from "./panel/WelcomeComplete";
 import { apiFetch } from "../lib/api";
 
 export function PanelWindow() {
+  // macOS Screen Recording permission gate — granted on non-mac builds.
+  // Renders ahead of the auth flow because without it, meeting detection is
+  // silently broken even after the user signs in. Once granted, this stays
+  // true for the lifetime of the process.
+  const [macPermissionGranted, setMacPermissionGranted] = useState(false);
+
   const { token, isAuthenticated, loading, login, logout } = useAuth();
   const { status: updateStatus } = useUpdaterContext();
   const { isConnected, activeMeetings, lastChartData } = useSocket(token);
@@ -471,7 +478,11 @@ export function PanelWindow() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-no-drag>
-        {!isAuthenticated ? (
+        {!macPermissionGranted ? (
+          <MacosPermissionGate
+            onGranted={() => setMacPermissionGranted(true)}
+          />
+        ) : !isAuthenticated ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             <p className="text-xs text-gray-300 font-medium">
               Connect your Minerva account
