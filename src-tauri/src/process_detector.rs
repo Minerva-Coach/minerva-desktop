@@ -7,6 +7,7 @@
 //! - `meeting-started` when an active Zoom meeting is detected
 //! - `meeting-stopped` when the meeting ends (or Zoom closes)
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -33,9 +34,10 @@ const ZOOM_PROCESS_NAMES: &[&str] = &[
     "ZoomWebviewHost", // Zoom sub-process (Linux)
 ];
 
-/// Window titles that positively indicate an active Zoom meeting.
-/// These only exist during active calls, not when Zoom is idle in the tray.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+/// Window titles (Linux only) that positively indicate an active Zoom meeting.
+/// macOS uses the shared `is_meeting_title()` helper instead, matching Windows
+/// rules so custom meeting topics ("Weekly Standup", lobby titles, etc.) work.
+#[cfg(target_os = "linux")]
 const MEETING_WINDOW_TITLES: &[&str] = &[
     "meeting",                       // Default meeting window title on Linux
     "zoom_linux_float_video_window", // Floating video thumbnail (active calls only)
@@ -216,22 +218,35 @@ fn extract_zoom_meeting_url() -> Option<String> {
 
     #[cfg(target_os = "macos")]
     {
-        // macOS: use `ps -eo args` to get command lines for all processes.
-        //
-        // TODO(macOS truncation): `ps` truncates each arg list to ~512 chars.
-        // The `pwd=` param on a real Zoom invite often falls past that
-        // boundary, in which case we'll see `confno` but no `pwd` and the
-        // caller will fall through to the paste-link popup. Proper fix:
-        // call `sysctlbyname("kern.procargs2", ...)` (or the equivalent
-        // CTL_KERN/KERN_PROCARGS2 mib) for each Zoom PID to read the
-        // untruncated argv directly from the kernel. Stubbed here for now;
-        // will be addressed once we have a Mac dev box. See planning doc
-        // open question 2 in docs/planning/zoom-auto-join-url.md.
-        let output = Command::new("ps").args(["-eo", "args"]).output().ok()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if line.contains("zoom.us") && line.contains("confno=") {
-                if let Some(url) = build_zoom_url_from_cmdline(line) {
+        // Read the untruncated argv directly from the kernel for each Zoom
+        // PID. `ps -eo args` truncates each arg list to ~512 chars; the
+        // `pwd=` parameter on a real Zoom invite often falls past that
+        // boundary, so the older codepath would surface a bare confno URL
+        // and force the user into the paste-link fallback for any
+        // password-protected meeting.
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        let zoom_pids: Vec<i32> = sys
+            .processes()
+            .values()
+            .filter(|p| {
+                let n = p.name().to_string_lossy().to_lowercase();
+                n == "zoom.us" || n == "zoom"
+            })
+            .map(|p| p.pid().as_u32() as i32)
+            .collect();
+
+        for pid in zoom_pids {
+            let cmdline = match read_proc_args_macos(pid) {
+                Some(s) => s,
+                None => continue,
+            };
+            if cmdline.contains("confno=") {
+                if let Some(url) = build_zoom_url_from_cmdline(&cmdline) {
                     return Some(url);
                 }
             }
@@ -426,7 +441,11 @@ fn is_in_active_meeting_windows() -> bool {
     state.found_meeting
 }
 
-#[cfg(target_os = "windows")]
+/// Title-based heuristic for "this is an active Zoom meeting window."
+/// Shared between Windows and macOS — both Zoom desktop clients use the same
+/// title conventions. Linux uses a separate code path because xdotool / wmctrl
+/// titles include extra decoration the Cocoa/Win32 APIs strip out.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn is_meeting_title(title: &str) -> bool {
     // Exact matches for meeting-only windows
     if title == "zoom meeting" || title == "annotation - zoom" {
@@ -590,32 +609,251 @@ fn check_window_titles(wmctrl_output: &str) -> bool {
     false
 }
 
+/// macOS meeting detection: enumerate on-screen windows owned by `zoom.us`
+/// and look for titles that only appear during active meetings.
+///
+/// Uses `CGWindowListCopyWindowInfo` directly — the same API Granola, Loom,
+/// Krisp, OBS, and Rewind use. Requires Screen Recording permission to read
+/// `kCGWindowName`; without it, the field is omitted from the dictionary
+/// and we silently return false (the React onboarding screen surfaces the
+/// permission prompt — see `commands::macos_screen_recording_status`).
+///
+/// Replaces an earlier osascript-based stub that required the Accessibility
+/// permission (~50ms per call, harder to explain to users) and only matched
+/// the static `MEETING_WINDOW_TITLES` list — missing custom meeting topics
+/// like "Weekly Standup" or lobby titles like "Alice's Zoom Meeting".
 #[cfg(target_os = "macos")]
 fn is_in_active_meeting_macos() -> bool {
-    // Use osascript to get Zoom window titles
-    let script = r#"
-        tell application "System Events"
-            if exists (process "zoom.us") then
-                tell process "zoom.us"
-                    set windowNames to name of every window
-                end tell
-                return windowNames as text
-            end if
-        end tell
-        return ""
-    "#;
+    use core_foundation::array::CFArrayRef;
+    use core_foundation::base::TCFType;
+    use core_foundation::dictionary::CFDictionaryRef;
+    use core_foundation::number::{CFNumber, CFNumberRef};
+    use core_foundation::string::{CFString, CFStringRef};
+    use core_graphics::window::{
+        kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly, kCGWindowName,
+        kCGWindowOwnerPID, CGWindowListCopyWindowInfo,
+    };
+    use std::collections::HashSet;
+    use std::ffi::c_void;
 
-    if let Ok(output) = Command::new("osascript").arg("-e").arg(script).output() {
-        if output.status.success() {
-            let titles = String::from_utf8_lossy(&output.stdout).to_lowercase();
-            for title in titles.split(',') {
-                let t = title.trim().to_lowercase();
-                if MEETING_WINDOW_TITLES.iter().any(|mt| t == *mt) {
-                    return true;
-                }
-            }
+    // CFDictionary / CFArray lookup helpers not exposed by core-foundation's
+    // safe API at the granularity we need. Declared here to keep this file
+    // self-contained; all calls live behind `unsafe`.
+    extern "C" {
+        fn CFArrayGetCount(arr: CFArrayRef) -> isize;
+        fn CFArrayGetValueAtIndex(arr: CFArrayRef, idx: isize) -> *const c_void;
+        fn CFDictionaryGetValueIfPresent(
+            dict: CFDictionaryRef,
+            key: *const c_void,
+            value: *mut *const c_void,
+        ) -> u8;
+        fn CFRelease(cf: *const c_void);
+        fn CFGetTypeID(cf: *const c_void) -> usize;
+        fn CFNumberGetTypeID() -> usize;
+        fn CFStringGetTypeID() -> usize;
+    }
+
+    // Collect zoom.us PIDs first. The window list spans every running app, so
+    // we filter by owner PID rather than by title (which would let unrelated
+    // apps with "meeting" in their title trigger false positives).
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing(),
+    );
+    let zoom_pids: HashSet<i64> = sys
+        .processes()
+        .values()
+        .filter(|p| {
+            let n = p.name().to_string_lossy().to_lowercase();
+            n == "zoom.us" || n == "zoom"
+        })
+        .map(|p| p.pid().as_u32() as i64)
+        .collect();
+    if zoom_pids.is_empty() {
+        return false;
+    }
+
+    let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+    // SAFETY: CGWindowListCopyWindowInfo is safe to call from any thread and
+    // returns either NULL (when permission is denied / system is busy) or a
+    // CFArrayRef we own (+1 refcount; released below).
+    let arr_ref: CFArrayRef = unsafe { CGWindowListCopyWindowInfo(options, 0) };
+    if arr_ref.is_null() {
+        log::debug!(
+            "CGWindowListCopyWindowInfo returned null — likely missing Screen Recording permission"
+        );
+        return false;
+    }
+
+    let mut found_meeting = false;
+    let count = unsafe { CFArrayGetCount(arr_ref) };
+    for i in 0..count {
+        let dict_ptr = unsafe { CFArrayGetValueAtIndex(arr_ref, i) };
+        if dict_ptr.is_null() {
+            continue;
+        }
+        let dict_ref = dict_ptr as CFDictionaryRef;
+
+        // --- Owner PID ---
+        let mut value: *const c_void = std::ptr::null();
+        let got = unsafe {
+            CFDictionaryGetValueIfPresent(
+                dict_ref,
+                kCGWindowOwnerPID as *const c_void,
+                &mut value,
+            )
+        };
+        if got == 0 || value.is_null() {
+            continue;
+        }
+        if unsafe { CFGetTypeID(value) } != unsafe { CFNumberGetTypeID() } {
+            continue;
+        }
+        // SAFETY: type ID matched CFNumber; the pointer is owned by the
+        // dictionary which we keep alive until end of scope via arr_ref.
+        let pid = match unsafe { CFNumber::wrap_under_get_rule(value as CFNumberRef) }.to_i64() {
+            Some(p) => p,
+            None => continue,
+        };
+        if !zoom_pids.contains(&pid) {
+            continue;
+        }
+
+        // --- Window name ---
+        let mut value: *const c_void = std::ptr::null();
+        let got = unsafe {
+            CFDictionaryGetValueIfPresent(dict_ref, kCGWindowName as *const c_void, &mut value)
+        };
+        if got == 0 || value.is_null() {
+            // kCGWindowName is omitted when the app lacks Screen Recording
+            // permission. Skip silently — the user-facing prompt is owned
+            // by the React onboarding screen.
+            continue;
+        }
+        if unsafe { CFGetTypeID(value) } != unsafe { CFStringGetTypeID() } {
+            continue;
+        }
+        let title = unsafe { CFString::wrap_under_get_rule(value as CFStringRef) }.to_string();
+        let lower = title.trim().to_lowercase();
+        if lower.is_empty() {
+            continue;
+        }
+
+        if is_meeting_title(&lower) {
+            log::info!("macOS meeting detected via title: '{}'", lower);
+            found_meeting = true;
+            break;
         }
     }
 
-    false
+    // SAFETY: arr_ref came from CGWindowListCopyWindowInfo (+1 refcount).
+    unsafe { CFRelease(arr_ref as *const c_void) };
+    found_meeting
+}
+
+/// Read the untruncated argv of `pid` directly from the kernel via
+/// `sysctl(CTL_KERN, KERN_PROCARGS2, …)`. Equivalent to `ps -p <pid> -o args`
+/// but without the ~512-char truncation, which `ps` applies regardless of
+/// terminal width.
+///
+/// Layout of the buffer per `man 1 ps` and the XNU source (`bsd/kern/kern_sysctl.c`):
+///
+/// ```text
+///   [u32 argc][exec_path\0]([padding\0]*)[arg0\0][arg1\0]...[argN-1\0][env...]
+/// ```
+///
+/// We skip the exec path and any padding NULs, then concatenate the argv
+/// entries with single spaces to mimic `ps -o args` formatting — the rest of
+/// the URL extraction (`build_zoom_url_from_cmdline`) is whitespace-tolerant.
+#[cfg(target_os = "macos")]
+fn read_proc_args_macos(pid: i32) -> Option<String> {
+    use std::ffi::c_void;
+
+    // sysctl MIB: { CTL_KERN, KERN_PROCARGS2, pid }
+    const CTL_KERN: i32 = 1;
+    const KERN_PROCARGS2: i32 = 49;
+
+    // Query the system-wide max arg size first so we right-size the buffer.
+    // Falls back to 256 KiB (the long-standing kernel default) if the sysctl
+    // misbehaves.
+    let mut argmax: i32 = 0;
+    let mut size = std::mem::size_of::<i32>();
+    let mut argmax_mib: [i32; 2] = [CTL_KERN, /* KERN_ARGMAX */ 8];
+    let argmax_ok = unsafe {
+        libc::sysctl(
+            argmax_mib.as_mut_ptr(),
+            2,
+            &mut argmax as *mut _ as *mut c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    let argmax = if argmax_ok == 0 && argmax > 0 {
+        argmax as usize
+    } else {
+        256 * 1024
+    };
+
+    let mut buf: Vec<u8> = vec![0; argmax];
+    let mut size = buf.len();
+    let mut mib: [i32; 3] = [CTL_KERN, KERN_PROCARGS2, pid];
+    let rc = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr() as *mut c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if rc != 0 {
+        // EINVAL = process exited mid-call, EPERM = SIP-protected target,
+        // ESRCH = no such process. All map to "no cmdline available."
+        return None;
+    }
+    buf.truncate(size);
+    if buf.len() < std::mem::size_of::<u32>() {
+        return None;
+    }
+
+    let argc = u32::from_ne_bytes(buf[0..4].try_into().ok()?) as usize;
+    let mut idx = 4usize;
+
+    // Skip the exec path (NUL-terminated) and any zero-padding that follows.
+    while idx < buf.len() && buf[idx] != 0 {
+        idx += 1;
+    }
+    while idx < buf.len() && buf[idx] == 0 {
+        idx += 1;
+    }
+
+    let mut parts: Vec<String> = Vec::with_capacity(argc);
+    for _ in 0..argc {
+        if idx >= buf.len() {
+            break;
+        }
+        let start = idx;
+        while idx < buf.len() && buf[idx] != 0 {
+            idx += 1;
+        }
+        let slice = &buf[start..idx];
+        // Lossy conversion — Zoom URLs are ASCII, but the env block that
+        // follows argv may contain non-UTF8 bytes; we never reach it here,
+        // but be defensive.
+        parts.push(String::from_utf8_lossy(slice).into_owned());
+        // Skip the trailing NUL.
+        if idx < buf.len() {
+            idx += 1;
+        }
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" "))
+    }
 }
