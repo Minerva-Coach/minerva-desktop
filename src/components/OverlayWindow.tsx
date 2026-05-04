@@ -74,17 +74,6 @@ export function OverlayWindow() {
     addIcon(lastCoachingMessage);
   }, [lastCoachingMessage]);
 
-  // Dev-mode simulated messages.
-  useEffect(() => {
-    const unlisten = listen<CoachingMessage>(
-      "dev-coaching-message",
-      (event) => addIcon(event.payload)
-    );
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
-
   const addIcon = useCallback((message: CoachingMessage) => {
     const id = ++iconCounter;
     setIcons((prev) => [...prev, { id, message }]);
@@ -92,6 +81,20 @@ export function OverlayWindow() {
       setIcons((prev) => prev.filter((i) => i.id !== id));
     }, 4000);
   }, []);
+
+  // Dev-mode simulated messages. Only register the listener in dev — the
+  // emitter is also dev-only (DevMode.tsx), so shipping the listener in
+  // release is dead code and a cross-window UI-spoofing surface (P2-C).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const unlisten = listen<CoachingMessage>(
+      "dev-coaching-message",
+      (event) => addIcon(event.payload)
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [addIcon]);
 
   // Reposition mode: let the user drag the window. Also exit if the user
   // "clicks" without moving (detected via position compare, because on

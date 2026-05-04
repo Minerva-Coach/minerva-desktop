@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Capability for all windows",
-  "windows": ["panel", "overlay", "icon-key"],
+  "identifier": "overlay",
+  "description": "Transparent click-through coaching overlay. No shell, no updater, no autostart, no process plugin — only the window controls it needs to drag, toggle click-through, and reposition.",
+  "windows": ["overlay"],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -12,14 +12,7 @@
     "core:window:allow-set-size",
     "core:window:allow-show",
     "core:window:allow-hide",
-    "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "core:event:default",
-    "shell:allow-open",
-    "updater:default",
-    "process:default",
-    "autostart:allow-enable",
-    "autostart:allow-disable",
-    "autostart:allow-is-enabled"
+    "core:event:default"
   ]
 }

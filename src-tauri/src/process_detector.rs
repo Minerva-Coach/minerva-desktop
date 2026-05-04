@@ -118,10 +118,11 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
             // trigger a tao/GTK panic on Linux via glib channel dispatch.
             if in_meeting && !was_in_meeting {
                 let meeting_url = extract_zoom_meeting_url();
-                log::info!("Active Zoom meeting detected (url={meeting_url:?})");
+                // Don't log the URL — it identifies a specific meeting (P3-G).
+                log::debug!("Active Zoom meeting detected (url present: {})", meeting_url.is_some());
                 let _ = app.emit("meeting-started", MeetingStartedPayload { meeting_url });
             } else if !in_meeting && was_in_meeting {
-                log::info!("Zoom meeting ended");
+                log::debug!("Zoom meeting ended");
                 let _ = app.emit("meeting-stopped", ());
             }
 
@@ -395,7 +396,9 @@ fn is_in_active_meeting_windows() -> bool {
             .to_lowercase();
 
         if is_meeting_title(&title) {
-            log::info!("Windows meeting detected via title: '{}'", title);
+            // Don't log titles — meeting topics often contain customer/internal
+            // info (P3-G).
+            log::debug!("Windows meeting detected via title");
             state.found_meeting = true;
             return FALSE; // stop enumeration
         }
@@ -533,13 +536,15 @@ fn has_meeting_window_xdotool() -> bool {
                             }
                             // Check 1: Known meeting-only window titles
                             if MEETING_WINDOW_TITLES.iter().any(|mt| title == *mt) {
-                                log::info!("Meeting window found (known title): '{}' (wid={})", title, wid);
+                                // Don't log titles — meeting topics often contain
+                                // customer/internal info (P3-G).
+                                log::debug!("Meeting window found (known title) wid={wid}");
                                 return true;
                             }
                             // Check 2: Any title that isn't a known idle title
                             // is likely a custom meeting topic (e.g. "Weekly Standup")
                             if !IDLE_WINDOW_TITLES.iter().any(|it| title == *it) {
-                                log::info!("Meeting window found (custom title): '{}' (wid={})", title, wid);
+                                log::debug!("Meeting window found (custom title) wid={wid}");
                                 return true;
                             }
                         }
@@ -742,7 +747,9 @@ fn is_in_active_meeting_macos() -> bool {
         }
 
         if is_meeting_title(&lower) {
-            log::info!("macOS meeting detected via title: '{}'", lower);
+            // Don't log titles — meeting topics often contain customer/internal
+            // info (P3-G).
+            log::debug!("macOS meeting detected via title");
             found_meeting = true;
             break;
         }

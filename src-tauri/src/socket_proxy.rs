@@ -78,7 +78,9 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
                         if let Payload::Text(values) = payload {
                             if let Some(data) = values.first() {
                                 let _ = app.emit("socket-connected", data.clone());
-                                log::info!("Socket proxy: connected, data={data}");
+                                // Don't log the payload — it contains user_id and
+                                // active meeting IDs (P3-G).
+                                log::debug!("Socket proxy: connected event received");
                             }
                         }
                     })
@@ -115,7 +117,7 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
 
             match result {
                 Ok(client) => {
-                    log::info!("Socket proxy: connected successfully");
+                    log::debug!("Socket proxy: connected successfully");
                     state.connected.store(true, Ordering::Relaxed);
                     *state.client.lock().await = Some(client.clone());
                     let _ = app.emit("socket-status", "connected");
@@ -127,7 +129,7 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
                         // Check if token changed (logout/re-login)
                         let current_token = auth::get_token();
                         if current_token.as_deref() != Some(&token) {
-                            log::info!("Socket proxy: token changed, reconnecting");
+                            log::debug!("Socket proxy: token changed, reconnecting");
                             let _ = client.disconnect().await;
                             break;
                         }

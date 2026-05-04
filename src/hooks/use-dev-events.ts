@@ -12,6 +12,11 @@ export function useDevChartData() {
   );
 
   useEffect(() => {
+    // Only register the dev event listener in development builds. The
+    // emitter is also dev-only (DevMode.tsx), so leaving the listener in
+    // production is dead code at best and a cross-window UI-spoofing
+    // surface at worst (P2-C).
+    if (!import.meta.env.DEV) return;
     const unlisten = listen<CompanionDataUpdate>("dev-chart-update", (event) => {
       setDevChartData(event.payload);
     });
