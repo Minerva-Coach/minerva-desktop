@@ -28,7 +28,7 @@ export function PanelWindow() {
   const [macPermissionGranted, setMacPermissionGranted] = useState(false);
 
   const { isAuthenticated, loading, login, logout } = useAuth();
-  const { status: updateStatus } = useUpdaterContext();
+  const { status: updateStatus, isStuck: updaterStuck } = useUpdaterContext();
   const { isConnected, activeMeetings, lastChartData } = useSocket();
   const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
@@ -427,6 +427,15 @@ export function PanelWindow() {
                 )}%`
               : `Downloading v${updateStatus.version}…`
             : `Installing v${updateStatus.version}…`}
+        </div>
+      )}
+
+      {/* Stuck-updater banner — shown after repeated check failures so the
+          user knows their install isn't auto-updating (P2-G). */}
+      {updaterStuck && (
+        <div className="px-3 py-1.5 bg-amber-900/40 border-b border-amber-800/60 text-[10px] text-amber-100 leading-relaxed">
+          Updates aren't downloading. Check your connection or reinstall from
+          minervacoach.com to get the latest version.
         </div>
       )}
 

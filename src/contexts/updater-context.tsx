@@ -4,14 +4,20 @@ import { useUpdater, type UpdaterStatus } from "../hooks/use-updater";
 interface UpdaterContextValue {
   status: UpdaterStatus;
   checkNow: () => Promise<void>;
+  /** True after >= 3 consecutive failed checks — surface a banner (P2-G). */
+  isStuck: boolean;
+  failureCount: number;
 }
 
 const UpdaterContext = createContext<UpdaterContextValue | null>(null);
 
 export function UpdaterProvider({ children }: { children: ReactNode }) {
-  const { status, checkNow } = useUpdater({ checkOnMount: true, autoInstall: true });
+  const { status, checkNow, isStuck, failureCount } = useUpdater({
+    checkOnMount: true,
+    autoInstall: true,
+  });
   return (
-    <UpdaterContext.Provider value={{ status, checkNow }}>
+    <UpdaterContext.Provider value={{ status, checkNow, isStuck, failureCount }}>
       {children}
     </UpdaterContext.Provider>
   );

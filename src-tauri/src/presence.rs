@@ -48,11 +48,19 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
                         let api_url = auth::get_api_url();
                         let url = format!("{api_url}/api/v1/desktop/presence");
 
+                        // Heartbeat carries the installed client version so
+                        // the backend can detect installs that have stopped
+                        // auto-updating (P2-G).
+                        let body = format!(
+                            r#"{{"app_version":"{}"}}"#,
+                            env!("CARGO_PKG_VERSION")
+                        );
+
                         match client
                             .post(&url)
                             .header("Authorization", format!("Bearer {token}"))
                             .header("Content-Type", "application/json")
-                            .body("{}")
+                            .body(body)
                             .send()
                             .await
                         {
