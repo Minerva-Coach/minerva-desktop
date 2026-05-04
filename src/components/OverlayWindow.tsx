@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
-import { useAuth } from "../hooks/use-auth";
 import { useSocket } from "../hooks/use-socket";
 import { FloatingIcon } from "./overlay/FloatingIcon";
 import { BehaviorStations } from "./overlay/BehaviorStations";
@@ -31,8 +30,7 @@ let iconCounter = 0;
  * hidden window panics tao on Linux, so we only flip it after visibility.
  */
 export function OverlayWindow() {
-  const { token } = useAuth();
-  const { lastCoachingMessage, lastChartData } = useSocket(token);
+  const { lastCoachingMessage, lastChartData } = useSocket();
   const [icons, setIcons] = useState<ActiveIcon[]>([]);
   const [visible, setVisible] = useState(false);
   const [repositioning, setRepositioning] = useState(false);

@@ -27,9 +27,9 @@ export function PanelWindow() {
   // true for the lifetime of the process.
   const [macPermissionGranted, setMacPermissionGranted] = useState(false);
 
-  const { token, isAuthenticated, loading, login, logout } = useAuth();
+  const { isAuthenticated, loading, login, logout } = useAuth();
   const { status: updateStatus } = useUpdaterContext();
-  const { isConnected, activeMeetings, lastChartData } = useSocket(token);
+  const { isConnected, activeMeetings, lastChartData } = useSocket();
   const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
   // Clear stats display when the bot isn't actively coaching — otherwise the

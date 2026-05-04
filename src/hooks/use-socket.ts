@@ -25,7 +25,7 @@ interface UseSocketReturn {
  * - socket-coaching-message: CoachingMessage
  * - socket-companion-data: CompanionDataUpdate
  */
-export function useSocket(_token: string | null): UseSocketReturn {
+export function useSocket(): UseSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [activeMeetings, setActiveMeetings] = useState<number[]>([]);
   const [lastCoachingMessage, setLastCoachingMessage] =

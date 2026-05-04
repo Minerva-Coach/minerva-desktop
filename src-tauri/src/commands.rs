@@ -45,16 +45,43 @@ pub async fn start_login(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Log out: delete the stored auth token.
+/// Log out:
+/// 1. POST /api/v1/desktop/logout so the server-side jti is revoked (the
+///    bearer token can't be reused even if a copy was exfiltrated).
+/// 2. Delete the stored auth token from the OS keychain.
+///
+/// Step 1 is best-effort — if the network is down or the server returns
+/// an error, we still proceed to clear the local keychain so the user
+/// isn't stuck signed in. The token will then expire naturally within
+/// 90 days even without server-side revocation.
 #[tauri::command]
 pub async fn logout() -> Result<(), String> {
+    if let Some(token) = auth::get_token() {
+        let api_url = auth::get_api_url();
+        let url = format!("{api_url}/api/v1/desktop/logout");
+        let result = HTTP_CLIENT
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await;
+        match result {
+            Ok(resp) if resp.status().is_success() => {
+                log::debug!("Server-side desktop session revoked");
+            }
+            Ok(resp) => {
+                log::warn!(
+                    "Server-side logout returned non-success ({}); clearing keychain anyway",
+                    resp.status()
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Server-side logout failed ({e}); clearing keychain anyway"
+                );
+            }
+        }
+    }
     auth::delete_token()
-}
-
-/// Get the stored auth token (if any).
-#[tauri::command]
-pub fn get_auth_token() -> Option<String> {
-    auth::get_token()
 }
 
 /// Check if there is a stored auth token.
@@ -172,6 +199,14 @@ pub async fn show_windows(app: AppHandle) -> Result<(), String> {
 
 /// Proxy an API request through Rust's reqwest client.
 /// This bypasses the webview's TLS restrictions (self-signed certs in dev).
+///
+/// `path` MUST be a server-relative path beginning with `/`. The path is
+/// joined onto the API base URL via `Url::join`, which would otherwise
+/// happily accept absolute URLs or `//other.host/x` and silently send
+/// the bearer token to a different origin. After joining, the result's
+/// host MUST equal the API base host — closes the credential-exfiltration
+/// vector documented in P1-F (e.g. `path = "@evil.com/x"` would otherwise
+/// produce `https://minervacoach.com@evil.com/x`).
 #[tauri::command]
 pub async fn api_request(
     method: String,
@@ -179,7 +214,7 @@ pub async fn api_request(
     body: Option<String>,
 ) -> Result<ApiResponse, String> {
     let api_url = auth::get_api_url();
-    let url = format!("{api_url}{path}");
+    let url = build_api_url(&api_url, &path)?;
 
     let mut req = match method.to_uppercase().as_str() {
         "GET" => HTTP_CLIENT.get(&url),
@@ -211,6 +246,82 @@ pub async fn api_request(
 pub struct ApiResponse {
     pub status: u16,
     pub body: String,
+}
+
+/// Resolve a caller-supplied path against the API base URL, refusing any
+/// input that would change the destination host.
+///
+/// Rejects:
+///   - paths that don't start with `/` (e.g. `"@evil.com/x"`)
+///   - paths containing `\` or `://`
+///   - any successful join whose host differs from the base host
+fn build_api_url(api_url: &str, path: &str) -> Result<String, String> {
+    if !path.starts_with('/') {
+        return Err("path must start with '/'".to_string());
+    }
+    if path.contains('\\') || path.contains("://") {
+        return Err("path contains disallowed characters".to_string());
+    }
+
+    let base = reqwest::Url::parse(api_url)
+        .map_err(|e| format!("invalid API base URL: {e}"))?;
+    let joined = base
+        .join(path)
+        .map_err(|e| format!("could not join path: {e}"))?;
+
+    if joined.host_str() != base.host_str() {
+        return Err("path resolves to a different host".to_string());
+    }
+    if joined.scheme() != base.scheme() {
+        return Err("path resolves to a different scheme".to_string());
+    }
+    if joined.port_or_known_default() != base.port_or_known_default() {
+        return Err("path resolves to a different port".to_string());
+    }
+
+    Ok(joined.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_api_url;
+
+    #[test]
+    fn build_api_url_accepts_normal_paths() {
+        let u = build_api_url("https://minervacoach.com", "/api/whoami").unwrap();
+        assert_eq!(u, "https://minervacoach.com/api/whoami");
+    }
+
+    #[test]
+    fn build_api_url_rejects_at_sign_host_smuggle() {
+        // Url::join("https://minervacoach.com", "@evil.com/x") happens to
+        // resolve back into the base host, but the leading-`/` check fails
+        // first. Guard belt-and-braces with both checks.
+        assert!(build_api_url("https://minervacoach.com", "@evil.com/x").is_err());
+    }
+
+    #[test]
+    fn build_api_url_rejects_protocol_relative() {
+        assert!(build_api_url("https://minervacoach.com", "//evil.com/x").is_err());
+    }
+
+    #[test]
+    fn build_api_url_rejects_absolute_url() {
+        assert!(build_api_url("https://minervacoach.com", "https://evil.com/x").is_err());
+    }
+
+    #[test]
+    fn build_api_url_rejects_backslash() {
+        assert!(build_api_url("https://minervacoach.com", "/api\\..\\x").is_err());
+    }
+
+    #[test]
+    fn build_api_url_normalizes_dotdot_within_host() {
+        // ".." segments still resolve under the same host — that's fine, the
+        // server can 404 if it doesn't recognize the path.
+        let u = build_api_url("https://minervacoach.com", "/a/b/../c").unwrap();
+        assert!(u.starts_with("https://minervacoach.com"));
+    }
 }
 
 /// Emit a "meeting_status" event on the shared SocketIO connection.

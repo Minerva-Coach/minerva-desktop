@@ -3,25 +3,30 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AuthResult } from "../types/coaching";
 
+/**
+ * Tracks whether a bearer token exists in the OS keychain. Intentionally
+ * does NOT expose the token itself — `api_request` (Rust) reads it from
+ * the keychain on every call and attaches the Authorization header in the
+ * Rust process, so the webview never needs the bearer string.
+ */
 export function useAuth() {
-  const [token, setToken] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Load token from keychain on mount
+  // Load presence-of-token from keychain on mount.
   useEffect(() => {
-    invoke<string | null>("get_auth_token")
-      .then((t) => setToken(t ?? null))
-      .catch(() => setToken(null))
+    invoke<boolean>("is_authenticated")
+      .then((b) => setIsAuthenticated(Boolean(b)))
+      .catch(() => setIsAuthenticated(false))
       .finally(() => setLoading(false));
   }, []);
 
-  // Listen for auth-complete events (after browser OAuth)
+  // Listen for auth-complete events (after browser OAuth).
   useEffect(() => {
     const unlisten = listen<AuthResult>("auth-complete", (event) => {
       if (event.payload.success) {
-        // Re-fetch token from keychain
-        invoke<string | null>("get_auth_token").then((t) =>
-          setToken(t ?? null)
+        invoke<boolean>("is_authenticated").then((b) =>
+          setIsAuthenticated(Boolean(b))
         );
       }
     });
@@ -31,10 +36,10 @@ export function useAuth() {
     };
   }, []);
 
-  // Listen for auth-expired events (401 from presence heartbeat)
+  // Listen for auth-expired events (401 from presence heartbeat).
   useEffect(() => {
     const unlisten = listen("auth-expired", () => {
-      setToken(null);
+      setIsAuthenticated(false);
     });
 
     return () => {
@@ -48,12 +53,11 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     await invoke("logout");
-    setToken(null);
+    setIsAuthenticated(false);
   }, []);
 
   return {
-    token,
-    isAuthenticated: token !== null,
+    isAuthenticated,
     loading,
     login,
     logout,

@@ -60,7 +60,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::start_login,
             commands::logout,
-            commands::get_auth_token,
             commands::is_authenticated,
             commands::is_in_meeting,
             commands::get_api_url,
