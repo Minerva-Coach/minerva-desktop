@@ -59,8 +59,8 @@ export function FloatingIcon({ message }: FloatingIconProps) {
   const emoji = getEmoji(message);
   if (!emoji) return null;
 
-  // Random horizontal jitter within the 80px strip
-  const xOffset = 10 + Math.random() * 40;
+  // Random horizontal jitter across the wider overlay window
+  const xOffset = 20 + Math.random() * 280;
 
   return (
     <div
