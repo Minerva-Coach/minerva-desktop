@@ -10,6 +10,8 @@ import { useUpdaterContext } from "../../contexts/updater-context";
 
 const DASHBOARD_PROFILE_URL = "https://minervacoach.com/dashboard/profile";
 const SUPPORT_EMAIL = "matt@minervacoach.com";
+const THIRD_PARTY_LICENSES_URL =
+  "https://github.com/Minerva-Coach/minerva-desktop/releases/latest/download/THIRD_PARTY_LICENSES.md";
 
 interface AboutModalProps {
   onClose: () => void;
@@ -222,6 +224,12 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
             className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-800 text-[11px] text-blue-400"
           >
             Contact support
+          </button>
+          <button
+            onClick={() => openShell(THIRD_PARTY_LICENSES_URL)}
+            className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-800 text-[11px] text-blue-400"
+          >
+            Open source licenses
           </button>
           <button
             onClick={() => setShowUninstall((v) => !v)}
