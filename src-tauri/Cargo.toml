@@ -1,6 +1,6 @@
 [package]
 name = "minerva-desktop"
-version = "0.1.10-rc1"
+version = "0.1.10"
 description = "Minerva Coach Desktop Overlay"
 authors = ["Minerva"]
 edition = "2021"
