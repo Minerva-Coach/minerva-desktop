@@ -187,15 +187,29 @@ export function PanelWindow() {
     };
   }, []);
 
-  // Trigger post-meeting modal when an active meeting ends. Watch
-  // activeMeetings (source of truth for "bot is coaching"); when a meeting
-  // drops off the list, show the post-meeting popup for that id.
+  // Trigger post-meeting modal when an active meeting ends, and auto-open
+  // the Icon Key window for the user's first few meeting starts so new
+  // users learn what the floating coaching icons mean (issue #248).
+  // Watch activeMeetings — the source of truth for "bot is coaching".
   const prevActiveMeetings = useRef<number[]>([]);
   useEffect(() => {
     const prev = prevActiveMeetings.current;
     const ended = prev.find((id) => !activeMeetings.includes(id));
     if (ended !== undefined) {
       setPostMeetingId(ended);
+    }
+    const started = activeMeetings.find((id) => !prev.includes(id));
+    if (started !== undefined) {
+      (async () => {
+        try {
+          const should = await invoke<boolean>("should_auto_show_icon_key");
+          if (!should) return;
+          await invoke("open_icon_key");
+          await invoke("record_icon_key_shown");
+        } catch (err) {
+          console.warn("auto-open icon key failed:", err);
+        }
+      })();
     }
     prevActiveMeetings.current = activeMeetings;
   }, [activeMeetings]);

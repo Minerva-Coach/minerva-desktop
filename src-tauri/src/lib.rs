@@ -74,6 +74,8 @@ pub fn run() {
             commands::open_icon_key,
             commands::is_welcome_acknowledged,
             commands::acknowledge_welcome,
+            commands::should_auto_show_icon_key,
+            commands::record_icon_key_shown,
             commands::macos_screen_recording_status,
             commands::macos_request_screen_recording,
             commands::macos_open_screen_recording_settings,

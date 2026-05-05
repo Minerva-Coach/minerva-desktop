@@ -445,6 +445,48 @@ pub fn acknowledge_welcome(app: AppHandle) -> Result<(), String> {
     std::fs::write(&path, b"").map_err(|e| e.to_string())
 }
 
+// --- Icon Key auto-open counter (#248) --------------------------------------
+//
+// New users won't recognize the floating coaching icons. Auto-open the Icon
+// Key window for the first three meetings, then stop. Persisted as a small
+// integer file in the per-user app data dir, same shape as the welcome
+// marker. Per-installation by design — reinstall resets the counter.
+
+const ICON_KEY_AUTO_OPEN_LIMIT: u32 = 3;
+
+fn icon_key_count_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("icon_key_shown_count"))
+}
+
+fn read_icon_key_show_count(app: &AppHandle) -> u32 {
+    icon_key_count_path(app)
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+/// Whether the icon key should auto-open at the next meeting start. True
+/// while the user has seen it fewer than ICON_KEY_AUTO_OPEN_LIMIT times.
+#[tauri::command]
+pub fn should_auto_show_icon_key(app: AppHandle) -> bool {
+    read_icon_key_show_count(&app) < ICON_KEY_AUTO_OPEN_LIMIT
+}
+
+/// Increment the persisted auto-open counter. Called from the frontend when
+/// it auto-opens the icon key on a meeting start, so subsequent meetings
+/// stop auto-opening once the limit is reached.
+#[tauri::command]
+pub fn record_icon_key_shown(app: AppHandle) -> Result<(), String> {
+    let path = icon_key_count_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let next = read_icon_key_show_count(&app).saturating_add(1);
+    std::fs::write(&path, next.to_string().as_bytes()).map_err(|e| e.to_string())
+}
+
 // --- macOS Screen Recording permission --------------------------------------
 //
 // Reading other apps' window titles on macOS requires the Screen Recording
