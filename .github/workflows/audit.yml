@@ -1,17 +1,20 @@
 name: Security Scans
 
-# SAST + dependency audits for the Tauri desktop app.
+# SAST + dependency audits + secret + type checks for the Tauri desktop app.
 #
 # What runs and why:
 #   - cargo audit  (Rust dep CVEs)             — analogous to pip-audit for backends
 #   - cargo clippy (Rust SAST)                 — analogous to Bandit for Python
 #   - npm audit    (frontend dep CVEs)         — front-end dep vulnerability surface
 #   - eslint       (TS SAST + security plugin) — front-end SAST
+#   - gitleaks     (secret scan)               — catches accidentally-committed creds
+#   - typecheck    (tsc --noEmit)              — catches type errors lint won't
 #
 # Triggers:
 #   - On every PR (no path filter — this whole repo is the desktop app).
 #   - Weekly cron, so newly-disclosed CVEs against pinned deps are surfaced
-#     even when no PR is open.
+#     even when no PR is open. Cron also runs gitleaks against full history,
+#     not just the PR delta.
 #   - Manual via workflow_dispatch.
 on:
   pull_request:
@@ -100,3 +103,66 @@ jobs:
 
       - name: Run ESLint
         run: npm run lint
+
+  typecheck:
+    name: TypeScript type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          # Need full history so we can either delta against the PR base
+          # (PR runs) or scan the whole tree (cron runs).
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Run gitleaks
+        # PR runs: delta only — historical findings are tracked separately
+        # and shouldn't block unrelated PRs.
+        # Cron / workflow_dispatch: full history scan — catches anything
+        # that drifted in or that we want re-scanned against the latest
+        # gitleaks ruleset.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.ref }}"
+            git fetch origin "$BASE_REF" --depth=1
+            RANGE="origin/${BASE_REF}..HEAD"
+            echo "Scanning PR delta: $RANGE"
+            gitleaks detect \
+              --source . \
+              --redact \
+              --no-banner \
+              --verbose \
+              --log-opts="$RANGE"
+          else
+            echo "Scanning full history"
+            gitleaks detect \
+              --source . \
+              --redact \
+              --no-banner \
+              --verbose
+          fi
