@@ -43,7 +43,7 @@ jobs:
             libsoup-3.0-dev
 
       - name: Install cargo-about
-        uses: taiki-e/install-action@d35a7037bc46c7dee49e2c5cfa2d22ed8b8de937  # v2
+        uses: taiki-e/install-action@cca35edeb1d01366c2843b68fc3ca441446d73d3  # v2
         with:
           tool: cargo-about
 
