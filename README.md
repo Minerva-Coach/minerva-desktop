@@ -40,9 +40,6 @@ A development build of the app talks to a local Minerva Coach backend
 at `https://127.0.0.1:8000`. Production builds talk to the hosted
 service at `https://minervacoach.com`.
 
-See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full development setup,
-including how to run a local backend.
-
 ## Backend
 
 The desktop client communicates with the Minerva Coach hosted backend

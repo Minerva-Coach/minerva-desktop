@@ -23,11 +23,12 @@ name: Desktop App Release
 #    branch can't kick off a signed/notarized release without human
 #    approval.
 #
-# 2. Set the `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret to the real
-#    passphrase protecting the minisign private key. See SIGNING_KEY.md
-#    for the procedure to re-encrypt the existing key with a passphrase.
-#    If the secret is unset the workflow still runs (passphrase resolves
-#    to empty string), but the key is as exposed as it was before.
+# 2. Set the `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret to the
+#    passphrase protecting the minisign private key. The procedure for
+#    re-encrypting the key with a passphrase lives in the internal
+#    signing-key runbook (not in this public repo). If the secret is
+#    unset the workflow still runs (passphrase resolves to empty
+#    string), but the key is as exposed as the secret file alone.
 #
 # 3. Apple Developer ID signing + notarization (macOS builds). Add the
 #    following secrets to the `desktop-release` environment:
