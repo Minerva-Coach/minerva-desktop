@@ -109,6 +109,79 @@ pub fn get_app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Diagnostic context shown in the Connection Issue modal so non-technical
+/// users can copy a single block of text and paste it into a support email.
+#[derive(Clone, serde::Serialize)]
+pub struct DiagnosticContext {
+    pub app_version: &'static str,
+    pub os: &'static str,
+    pub arch: &'static str,
+    pub os_version: String,
+    pub api_url: String,
+    pub has_token: bool,
+}
+
+/// Return platform + auth context for the Connection Issue modal.
+///
+/// `os_version` is best-effort: on macOS we shell `sw_vers -productVersion`,
+/// on Windows we use the `windows::Win32` `GetVersionExW` would require a
+/// dependency we already have but with extra work — for now we just report
+/// `std::env::consts::OS` as a coarse fallback. Recent error chains arrive
+/// via `socket-error` / `auth-complete` Tauri events; the modal pairs them
+/// with this context.
+#[tauri::command]
+pub fn get_diagnostic_context() -> DiagnosticContext {
+    DiagnosticContext {
+        app_version: env!("CARGO_PKG_VERSION"),
+        os: std::env::consts::OS,
+        arch: std::env::consts::ARCH,
+        os_version: detect_os_version(),
+        api_url: auth::get_api_url(),
+        has_token: auth::get_token().is_some(),
+    }
+}
+
+/// Best-effort OS version string. Empty on failure — the modal renders the
+/// other fields regardless.
+fn detect_os_version() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout).ok()
+                } else {
+                    None
+                }
+            })
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "ver"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout).ok()
+                } else {
+                    None
+                }
+            })
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        String::new()
+    }
+}
+
 /// Show or hide the coaching overlay window independently of meeting state.
 ///
 /// Used by the About modal's "Show coaching overlay" toggle. Visibility
@@ -370,6 +443,48 @@ pub fn acknowledge_welcome(app: AppHandle) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     std::fs::write(&path, b"").map_err(|e| e.to_string())
+}
+
+// --- Icon Key auto-open counter (#248) --------------------------------------
+//
+// New users won't recognize the floating coaching icons. Auto-open the Icon
+// Key window for the first three meetings, then stop. Persisted as a small
+// integer file in the per-user app data dir, same shape as the welcome
+// marker. Per-installation by design — reinstall resets the counter.
+
+const ICON_KEY_AUTO_OPEN_LIMIT: u32 = 3;
+
+fn icon_key_count_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("icon_key_shown_count"))
+}
+
+fn read_icon_key_show_count(app: &AppHandle) -> u32 {
+    icon_key_count_path(app)
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+/// Whether the icon key should auto-open at the next meeting start. True
+/// while the user has seen it fewer than ICON_KEY_AUTO_OPEN_LIMIT times.
+#[tauri::command]
+pub fn should_auto_show_icon_key(app: AppHandle) -> bool {
+    read_icon_key_show_count(&app) < ICON_KEY_AUTO_OPEN_LIMIT
+}
+
+/// Increment the persisted auto-open counter. Called from the frontend when
+/// it auto-opens the icon key on a meeting start, so subsequent meetings
+/// stop auto-opening once the limit is reached.
+#[tauri::command]
+pub fn record_icon_key_shown(app: AppHandle) -> Result<(), String> {
+    let path = icon_key_count_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let next = read_icon_key_show_count(&app).saturating_add(1);
+    std::fs::write(&path, next.to_string().as_bytes()).map_err(|e| e.to_string())
 }
 
 // --- macOS Screen Recording permission --------------------------------------

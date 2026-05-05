@@ -146,7 +146,13 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
                     }
                 }
                 Err(e) => {
-                    log::warn!("Socket proxy: connection failed: {e}");
+                    let chain = format_error_chain(&e);
+                    log::warn!("Socket proxy: connection failed: {chain}");
+                    // Surface the failure to the React panel so it can show a
+                    // user-shareable diagnostic in the Connection Issue modal.
+                    // Non-technical users can't read terminal logs; this lets
+                    // them copy the error and email support directly.
+                    let _ = app.emit("socket-error", chain);
                 }
             }
 
@@ -158,4 +164,19 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
+}
+
+/// Walk an error and its `source()` chain into a single human-readable
+/// string. The default `Display` for an error often hides the actual cause
+/// (e.g. shows "I/O error" but not "TLS handshake failure: certificate
+/// chain not trusted"). The full chain is what support needs to diagnose
+/// connection problems.
+fn format_error_chain(err: &dyn std::error::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut src = err.source();
+    while let Some(s) = src {
+        parts.push(s.to_string());
+        src = s.source();
+    }
+    parts.join(" -> ")
 }

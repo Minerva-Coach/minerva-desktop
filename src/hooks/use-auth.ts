@@ -12,6 +12,9 @@ import type { AuthResult } from "../types/coaching";
 export function useAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Most recent failed sign-in. Surfaced in ConnectionIssueModal so a
+  // non-technical user can copy + share what went wrong.
+  const [lastAuthError, setLastAuthError] = useState<string | null>(null);
 
   // Load presence-of-token from keychain on mount.
   useEffect(() => {
@@ -25,9 +28,12 @@ export function useAuth() {
   useEffect(() => {
     const unlisten = listen<AuthResult>("auth-complete", (event) => {
       if (event.payload.success) {
+        setLastAuthError(null);
         invoke<boolean>("is_authenticated").then((b) =>
           setIsAuthenticated(Boolean(b))
         );
+      } else {
+        setLastAuthError(event.payload.error ?? "Unknown sign-in error");
       }
     });
 
@@ -48,6 +54,7 @@ export function useAuth() {
   }, []);
 
   const login = useCallback(async () => {
+    setLastAuthError(null);
     await invoke("start_login");
   }, []);
 
@@ -61,5 +68,6 @@ export function useAuth() {
     loading,
     login,
     logout,
+    lastAuthError,
   };
 }

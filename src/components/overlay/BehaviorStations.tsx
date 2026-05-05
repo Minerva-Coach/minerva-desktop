@@ -23,7 +23,7 @@ export function BehaviorStations({ behaviors }: BehaviorStationsProps) {
   }
 
   return (
-    <div className="absolute inset-x-0 top-2 flex flex-col items-center gap-1.5">
+    <div className="flex flex-row items-start justify-around gap-2 px-2">
       {COMPANION_BEHAVIORS.map((meta) => {
         const data = byCode.get(meta.code);
         const count = data?.count ?? 0;
@@ -36,16 +36,16 @@ export function BehaviorStations({ behaviors }: BehaviorStationsProps) {
         return (
           <div
             key={meta.code}
-            className="flex flex-col items-center text-center"
+            className="flex flex-col items-center text-center flex-1 min-w-0"
           >
             <span
-              className="text-lg leading-none drop-shadow"
+              className="text-2xl leading-none drop-shadow"
               style={{ textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}
             >
               {meta.emoji}
             </span>
             <span
-              className={`text-[10px] font-mono font-semibold leading-tight ${
+              className={`text-[11px] font-mono font-semibold leading-tight mt-0.5 ${
                 metTarget ? "text-green-400" : "text-white"
               }`}
               style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}
@@ -53,7 +53,7 @@ export function BehaviorStations({ behaviors }: BehaviorStationsProps) {
               {count}/{fullTarget || "–"}
             </span>
             <span
-              className="text-[8px] font-semibold tracking-wider text-gray-200/80 leading-tight"
+              className="text-[9px] font-semibold tracking-wider text-gray-200/80 leading-tight"
               style={{ textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}
             >
               {meta.label}

@@ -128,15 +128,13 @@ export function OverlayWindow() {
 
   return (
     <div
-      className={`w-full h-full relative overflow-hidden ${
-        repositioning
-          ? "bg-gray-900/60 border-2 border-dashed border-blue-400 rounded-lg cursor-move"
-          : ""
+      className={`w-full h-full relative overflow-hidden rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 ${
+        repositioning ? "border-2 border-dashed border-blue-400 cursor-move" : ""
       }`}
       onMouseDown={handleRepositionMouseDown}
     >
       {repositioning && (
-        <div className="absolute inset-x-0 top-0 bg-black/70 text-white text-[10px] p-2 text-center pointer-events-none flex items-center justify-center gap-3">
+        <div className="absolute inset-x-0 top-0 bg-black/70 text-white text-[10px] p-2 text-center pointer-events-none flex items-center justify-center gap-3 z-10">
           <span>Drag to move</span>
           <button
             type="button"
@@ -151,6 +149,23 @@ export function OverlayWindow() {
           </button>
         </div>
       )}
+
+      <div
+        className="px-2 pt-1.5 pb-1 text-center"
+        style={{
+          // 4-corner hard outline + soft drop shadow so the text stays
+          // readable on any meeting background (light slides, dark video, etc).
+          textShadow:
+            "1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000, 0 0 4px rgba(0,0,0,0.9)",
+        }}
+      >
+        <p className="text-[15px] font-bold text-white leading-tight">
+          Minerva Core Behavior Counts
+        </p>
+        <p className="text-[12px] font-medium text-white leading-tight">
+          Reposition in the About menu — click <span aria-hidden="true">ⓘ</span>
+        </p>
+      </div>
 
       <BehaviorStations behaviors={lastChartData?.data.behaviors ?? []} />
 

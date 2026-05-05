@@ -68,11 +68,14 @@ pub fn run() {
             commands::api_request,
             commands::send_meeting_status,
             commands::get_app_version,
+            commands::get_diagnostic_context,
             commands::set_overlay_visible,
             commands::start_overlay_reposition,
             commands::open_icon_key,
             commands::is_welcome_acknowledged,
             commands::acknowledge_welcome,
+            commands::should_auto_show_icon_key,
+            commands::record_icon_key_shown,
             commands::macos_screen_recording_status,
             commands::macos_request_screen_recording,
             commands::macos_open_screen_recording_settings,
@@ -136,8 +139,8 @@ pub fn run() {
                     });
 
                     if let Some(overlay) = app.get_webview_window("overlay") {
-                        let overlay_w = 80;
-                        let overlay_h = 600;
+                        let overlay_w = 340;
+                        let overlay_h = 220;
                         let overlay_x = panel_x - overlay_w - 10;
                         let overlay_y = mp.y + (ms.height as i32 - overlay_h) / 2;
                         let _ = overlay.set_position(tauri::PhysicalPosition {

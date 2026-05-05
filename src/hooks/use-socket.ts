@@ -13,6 +13,7 @@ interface UseSocketReturn {
   activeMeetings: number[];
   lastCoachingMessage: CoachingMessage | null;
   lastChartData: CompanionDataUpdate | null;
+  lastSocketError: string | null;
 }
 
 /**
@@ -24,6 +25,7 @@ interface UseSocketReturn {
  * - socket-connected: { user_id, meetings, timestamp }
  * - socket-coaching-message: CoachingMessage
  * - socket-companion-data: CompanionDataUpdate
+ * - socket-error: error chain string (most recent connect failure)
  */
 export function useSocket(): UseSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
@@ -32,15 +34,19 @@ export function useSocket(): UseSocketReturn {
     useState<CoachingMessage | null>(null);
   const [lastChartData, setLastChartData] =
     useState<CompanionDataUpdate | null>(null);
+  const [lastSocketError, setLastSocketError] = useState<string | null>(null);
 
   useEffect(() => {
     const unlisteners = [
       listen<string>("socket-status", (event) => {
-        setIsConnected(event.payload === "connected");
+        const connected = event.payload === "connected";
+        setIsConnected(connected);
+        if (connected) setLastSocketError(null);
       }),
 
       listen<ConnectedPayload>("socket-connected", (event) => {
         setIsConnected(true);
+        setLastSocketError(null);
         setActiveMeetings(event.payload.meetings ?? []);
       }),
 
@@ -51,6 +57,10 @@ export function useSocket(): UseSocketReturn {
       listen<CompanionDataUpdate>("socket-companion-data", (event) => {
         setLastChartData(event.payload);
       }),
+
+      listen<string>("socket-error", (event) => {
+        setLastSocketError(event.payload);
+      }),
     ];
 
     return () => {
@@ -58,5 +68,11 @@ export function useSocket(): UseSocketReturn {
     };
   }, []);
 
-  return { isConnected, activeMeetings, lastCoachingMessage, lastChartData };
+  return {
+    isConnected,
+    activeMeetings,
+    lastCoachingMessage,
+    lastChartData,
+    lastSocketError,
+  };
 }
