@@ -66,19 +66,31 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
                         {
                             Ok(resp) if resp.status().is_success() => {
                                 log::debug!("Presence heartbeat sent");
+                                // Clear any stale presence-error banner the
+                                // panel may be showing from a previous failure.
+                                let _ = app.emit("presence-ok", ());
                             }
                             Ok(resp) if resp.status().as_u16() == 401 => {
                                 log::warn!("Presence heartbeat: auth expired (401)");
                                 let _ = app.emit("auth-expired", ());
                             }
                             Ok(resp) => {
+                                let status = resp.status();
                                 log::warn!(
-                                    "Presence heartbeat failed: HTTP {}",
-                                    resp.status()
+                                    "Presence heartbeat failed: HTTP {status}"
+                                );
+                                // Surface to the React panel so the user sees
+                                // why coaching may not start in this meeting.
+                                // 401 already routes through `auth-expired` above.
+                                let _ = app.emit(
+                                    "presence-error",
+                                    format!("HTTP {status} from /api/v1/desktop/presence"),
                                 );
                             }
                             Err(e) => {
-                                log::warn!("Presence heartbeat error: {e}");
+                                let chain = format_reqwest_error_chain(&e);
+                                log::warn!("Presence heartbeat error: {chain}");
+                                let _ = app.emit("presence-error", chain);
                             }
                         }
                     }
@@ -108,4 +120,17 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
             tokio::time::sleep(IDLE_CHECK_INTERVAL).await;
         }
     });
+}
+
+/// Render a `reqwest::Error` and its `source()` chain as a single string.
+/// `reqwest::Error`'s `Display` impl alone often shows just "error sending
+/// request" — the actual cause (DNS / TLS / refused) is in the chain.
+fn format_reqwest_error_chain(err: &reqwest::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut src: Option<&dyn std::error::Error> = std::error::Error::source(err);
+    while let Some(s) = src {
+        parts.push(s.to_string());
+        src = s.source();
+    }
+    parts.join(" -> ")
 }

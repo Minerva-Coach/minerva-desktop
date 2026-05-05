@@ -109,6 +109,79 @@ pub fn get_app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Diagnostic context shown in the Connection Issue modal so non-technical
+/// users can copy a single block of text and paste it into a support email.
+#[derive(Clone, serde::Serialize)]
+pub struct DiagnosticContext {
+    pub app_version: &'static str,
+    pub os: &'static str,
+    pub arch: &'static str,
+    pub os_version: String,
+    pub api_url: String,
+    pub has_token: bool,
+}
+
+/// Return platform + auth context for the Connection Issue modal.
+///
+/// `os_version` is best-effort: on macOS we shell `sw_vers -productVersion`,
+/// on Windows we use the `windows::Win32` `GetVersionExW` would require a
+/// dependency we already have but with extra work — for now we just report
+/// `std::env::consts::OS` as a coarse fallback. Recent error chains arrive
+/// via `socket-error` / `auth-complete` Tauri events; the modal pairs them
+/// with this context.
+#[tauri::command]
+pub fn get_diagnostic_context() -> DiagnosticContext {
+    DiagnosticContext {
+        app_version: env!("CARGO_PKG_VERSION"),
+        os: std::env::consts::OS,
+        arch: std::env::consts::ARCH,
+        os_version: detect_os_version(),
+        api_url: auth::get_api_url(),
+        has_token: auth::get_token().is_some(),
+    }
+}
+
+/// Best-effort OS version string. Empty on failure — the modal renders the
+/// other fields regardless.
+fn detect_os_version() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout).ok()
+                } else {
+                    None
+                }
+            })
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "ver"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout).ok()
+                } else {
+                    None
+                }
+            })
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        String::new()
+    }
+}
+
 /// Show or hide the coaching overlay window independently of meeting state.
 ///
 /// Used by the About modal's "Show coaching overlay" toggle. Visibility

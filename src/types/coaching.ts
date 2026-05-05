@@ -58,3 +58,13 @@ export interface AuthResult {
   success: boolean;
   error?: string;
 }
+
+/** Platform context shown in the Connection Issue modal. */
+export interface DiagnosticContext {
+  app_version: string;
+  os: string;
+  arch: string;
+  os_version: string;
+  api_url: string;
+  has_token: boolean;
+}

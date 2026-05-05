@@ -8,6 +8,7 @@ import { useDevChartData } from "../hooks/use-dev-events";
 import { useConnectedAccounts } from "../hooks/use-connected-accounts";
 import { useMeetingStatus } from "../hooks/use-meeting-status";
 import { useWelcomeAcknowledged } from "../hooks/use-welcome-acknowledged";
+import { usePresenceError } from "../hooks/use-presence";
 import { useUpdaterContext } from "../contexts/updater-context";
 import { AccountStatus } from "./panel/AccountStatus";
 import { Gauges } from "./panel/Gauges";
@@ -18,6 +19,7 @@ import { PasteLinkModal } from "./panel/PasteLinkModal";
 import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
 import { MacosPermissionGate } from "./panel/MacosPermissionGate";
 import { WelcomeComplete } from "./panel/WelcomeComplete";
+import { ConnectionIssueModal } from "./panel/ConnectionIssueModal";
 import { apiFetch } from "../lib/api";
 
 export function PanelWindow() {
@@ -27,9 +29,10 @@ export function PanelWindow() {
   // true for the lifetime of the process.
   const [macPermissionGranted, setMacPermissionGranted] = useState(false);
 
-  const { isAuthenticated, loading, login, logout } = useAuth();
+  const { isAuthenticated, loading, login, logout, lastAuthError } = useAuth();
   const { status: updateStatus, isStuck: updaterStuck } = useUpdaterContext();
-  const { isConnected, activeMeetings, lastChartData } = useSocket();
+  const { isConnected, activeMeetings, lastChartData, lastSocketError } =
+    useSocket();
   const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
   // Clear stats display when the bot isn't actively coaching — otherwise the
@@ -41,10 +44,12 @@ export function PanelWindow() {
     accounts,
     loading: accountsLoading,
     hasResolved: accountsResolved,
+    error: accountsError,
     refresh: refreshAccounts,
   } = useConnectedAccounts(isAuthenticated);
   const hasPlatformConnected =
     accounts.zoom.connected || accounts.teams.connected;
+  const presenceError = usePresenceError();
   const { acknowledged: welcomeAcknowledged, acknowledge: acknowledgeWelcome } =
     useWelcomeAcknowledged();
   const { inMeeting, meetingUrl: detectedUrl } = useMeetingStatus();
@@ -110,6 +115,28 @@ export function PanelWindow() {
   const [pasteModalInitialError, setPasteModalInitialError] = useState("");
 
   const [showAbout, setShowAbout] = useState(false);
+  // Connection Issue modal: opens automatically on a fresh sign-in failure
+  // (so non-technical users see the diagnostic without hunting for it) and
+  // can also be opened by clicking the Disconnected status bar.
+  const [connectionIssueOpen, setConnectionIssueOpen] = useState(false);
+  const prevAuthError = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastAuthError && lastAuthError !== prevAuthError.current) {
+      setConnectionIssueOpen(true);
+    }
+    prevAuthError.current = lastAuthError;
+  }, [lastAuthError]);
+  // Same auto-open behavior for accounts: silent backend failures used to
+  // route the user to the ConnectPlatformGate as if their integrations had
+  // been wiped. Surface the error instead so they don't reauthorize Zoom
+  // for nothing.
+  const prevAccountsError = useRef<string | null>(null);
+  useEffect(() => {
+    if (accountsError && accountsError !== prevAccountsError.current) {
+      setConnectionIssueOpen(true);
+    }
+    prevAccountsError.current = accountsError;
+  }, [accountsError]);
   const [postMeetingId, setPostMeetingId] = useState<number | null>(null);
   const [postMeetingMock, setPostMeetingMock] = useState<
     React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
@@ -485,6 +512,28 @@ export function PanelWindow() {
         />
       )}
 
+      {connectionIssueOpen && (
+        <ConnectionIssueModal
+          title={
+            !isAuthenticated
+              ? "Sign-in didn't complete"
+              : "Can't reach Minerva"
+          }
+          description={
+            !isAuthenticated
+              ? "Minerva couldn't finish signing you in. The details below help support figure out why."
+              : "Minerva is having trouble talking to the server. Coaching may not start in your next meeting until this reconnects. The details below help support diagnose the cause."
+          }
+          socketError={lastSocketError}
+          authError={lastAuthError}
+          accountsError={accountsError}
+          presenceError={presenceError}
+          showRetry={!isAuthenticated}
+          onRetry={login}
+          onClose={() => setConnectionIssueOpen(false)}
+        />
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-no-drag>
         {!macPermissionGranted ? (
@@ -506,10 +555,47 @@ export function PanelWindow() {
             >
               Sign in to Minerva
             </button>
+            {lastAuthError && (
+              <button
+                onClick={() => setConnectionIssueOpen(true)}
+                className="text-[10px] text-amber-400 hover:text-amber-300 underline transition-colors"
+              >
+                Last sign-in failed — show details
+              </button>
+            )}
           </div>
         ) : !accountsResolved ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             <p className="text-[10px] text-gray-500">Loading your account…</p>
+          </div>
+        ) : accountsError && !hasPlatformConnected ? (
+          // Distinct from ConnectPlatformGate: the user might already have
+          // Zoom/Teams linked — we just couldn't reach the backend to
+          // confirm. Showing the "connect platform" buttons here would push
+          // them into a redundant OAuth flow.
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+            <p className="text-xs text-gray-300 font-medium">
+              Couldn't load your account
+            </p>
+            <p className="text-[10px] text-gray-500 leading-relaxed px-2">
+              We hit an error reading your connected platforms. Your Zoom and
+              Teams links on minervacoach.com are unaffected — this is just
+              the desktop app failing to fetch them.
+            </p>
+            <div className="flex flex-col gap-1.5 w-full max-w-[200px]">
+              <button
+                onClick={refreshAccounts}
+                className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+              >
+                Try again
+              </button>
+              <button
+                onClick={() => setConnectionIssueOpen(true)}
+                className="text-[10px] text-amber-400 hover:text-amber-300 underline transition-colors"
+              >
+                Show details
+              </button>
+            </div>
           </div>
         ) : !hasPlatformConnected ? (
           <ConnectPlatformGate
@@ -529,6 +615,24 @@ export function PanelWindow() {
               loading={accountsLoading}
               onRefresh={refreshAccounts}
             />
+            {/* Heartbeat-failure banner: only relevant in a meeting, since
+                presence is what tells the backend "user is in this Zoom call"
+                so Recall.ai will auto-verify them. Without it the bot may
+                never join — surface that proactively instead of silently. */}
+            {inMeeting && presenceError && (
+              <div className="py-2 px-2 rounded bg-amber-900/30 border border-amber-800/40 flex items-start justify-between gap-2">
+                <p className="text-[10px] text-amber-200 leading-relaxed">
+                  Minerva can't reach the server to register you in this
+                  meeting. The bot may not join.
+                </p>
+                <button
+                  onClick={() => setConnectionIssueOpen(true)}
+                  className="text-[10px] text-amber-300 hover:text-amber-100 underline shrink-0 self-start"
+                >
+                  Details
+                </button>
+              </div>
+            )}
             {renderMeetingSection()}
             <Gauges chartData={chartData} hasBotInMeeting={hasBotInMeeting} />
             {import.meta.env.DEV && <DevMode />}
@@ -536,25 +640,50 @@ export function PanelWindow() {
         )}
       </div>
 
-      {/* Status bar */}
-      <div className="px-3 py-1 bg-gray-800 border-t border-gray-700 flex items-center gap-2">
-        <div
-          className={`w-2 h-2 rounded-full ${
-            !isAuthenticated
-              ? "bg-gray-600"
-              : isConnected
-                ? "bg-green-500"
-                : "bg-red-500"
-          }`}
-        />
-        <span className="text-[10px] text-gray-500">
-          {!isAuthenticated
-            ? "Not signed in"
-            : isConnected
-              ? "Connected"
-              : "Disconnected"}
-        </span>
-      </div>
+      {/* Status bar — clickable when authenticated-but-disconnected so the
+          user can pop the diagnostic modal without hunting for it. */}
+      {(() => {
+        const showAsButton = isAuthenticated && !isConnected;
+        const className =
+          "w-full px-3 py-1 bg-gray-800 border-t border-gray-700 flex items-center gap-2 text-left" +
+          (showAsButton ? " hover:bg-gray-700 cursor-pointer transition-colors" : "");
+        const dot = (
+          <div
+            className={`w-2 h-2 rounded-full ${
+              !isAuthenticated
+                ? "bg-gray-600"
+                : isConnected
+                  ? "bg-green-500"
+                  : "bg-red-500"
+            }`}
+          />
+        );
+        const label = !isAuthenticated
+          ? "Not signed in"
+          : isConnected
+            ? "Connected"
+            : "Disconnected — click for help";
+        if (showAsButton) {
+          return (
+            <button
+              type="button"
+              className={className}
+              onClick={() => setConnectionIssueOpen(true)}
+              data-no-drag
+              title="Show connection details"
+            >
+              {dot}
+              <span className="text-[10px] text-gray-400">{label}</span>
+            </button>
+          );
+        }
+        return (
+          <div className={className}>
+            {dot}
+            <span className="text-[10px] text-gray-500">{label}</span>
+          </div>
+        );
+      })()}
     </div>
   );
 }

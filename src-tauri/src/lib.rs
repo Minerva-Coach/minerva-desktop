@@ -68,6 +68,7 @@ pub fn run() {
             commands::api_request,
             commands::send_meeting_status,
             commands::get_app_version,
+            commands::get_diagnostic_context,
             commands::set_overlay_visible,
             commands::start_overlay_reposition,
             commands::open_icon_key,
