@@ -2,8 +2,10 @@
 name = "minerva-desktop"
 version = "0.1.10"
 description = "Minerva Coach Desktop Overlay"
-authors = ["Minerva"]
+authors = ["Minerva Research Inc"]
 edition = "2021"
+license = "MIT"
+publish = false
 
 [lib]
 name = "minerva_desktop_lib"
