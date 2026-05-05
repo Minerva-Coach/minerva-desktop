@@ -152,12 +152,17 @@ export function OverlayWindow() {
 
       <div
         className="px-2 pt-1.5 pb-1 text-center"
-        style={{ textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}
+        style={{
+          // 4-corner hard outline + soft drop shadow so the text stays
+          // readable on any meeting background (light slides, dark video, etc).
+          textShadow:
+            "1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000, 0 0 4px rgba(0,0,0,0.9)",
+        }}
       >
-        <p className="text-[10px] font-semibold text-white/90 leading-tight">
+        <p className="text-[15px] font-bold text-white leading-tight">
           Minerva Core Behavior Counts
         </p>
-        <p className="text-[9px] text-white/60 leading-tight">
+        <p className="text-[12px] font-medium text-white leading-tight">
           Reposition in the About menu — click <span aria-hidden="true">ⓘ</span>
         </p>
       </div>
