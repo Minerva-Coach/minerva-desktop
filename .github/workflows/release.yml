@@ -1,0 +1,312 @@
+name: Desktop App Release
+
+# This is the translated counterpart of MinervaMVP's
+# .github/workflows/desktop-release.yml, rewritten for the standalone
+# minerva-desktop repo where the source tree is at the repo root
+# (no `desktop_app/` prefix) and the release host is the same repo as
+# the source (no cross-repo App-token indirection).
+#
+# PREREQUISITES (one-time setup):
+#
+# 1. Create a GitHub "environment" named `desktop-release` at
+#    Settings → Environments → New environment in this repo. Move
+#    `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+#    into this environment as env-scoped secrets — that way they're
+#    only accessible to jobs that explicitly declare
+#    `environment: desktop-release` (the build and release jobs below).
+#
+#    Public-repo bonus: environment **protection rules** (required
+#    reviewers, wait timer, deployment branch rules) are available on
+#    public repos at the Free tier — unlike on a private repo. Once
+#    the workflow is verified, consider gating the build job behind a
+#    required reviewer so an attacker who lands a malicious tag on a
+#    branch can't kick off a signed/notarized release without human
+#    approval.
+#
+# 2. Set the `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret to the real
+#    passphrase protecting the minisign private key. See SIGNING_KEY.md
+#    for the procedure to re-encrypt the existing key with a passphrase.
+#    If the secret is unset the workflow still runs (passphrase resolves
+#    to empty string), but the key is as exposed as it was before.
+#
+# 3. Apple Developer ID signing + notarization (macOS builds). Add the
+#    following secrets to the `desktop-release` environment:
+#      - APPLE_CERTIFICATE              base64 of the .p12 bundle
+#      - APPLE_CERTIFICATE_PASSWORD     password protecting the .p12
+#      - APPLE_SIGNING_IDENTITY         e.g. "Developer ID Application: Name (TEAMID)"
+#      - APPLE_ID                       Apple ID email used for notarization
+#      - APPLE_PASSWORD                 app-specific password (appleid.apple.com)
+#      - APPLE_TEAM_ID                  10-char team ID from developer.apple.com
+#    If any are missing the macOS build will fail to sign — that is
+#    deliberate, so we never ship an unsigned .dmg by accident.
+#
+# Note: the `APP_ID` / `APP_PRIVATE_KEY` GitHub App secrets used by the
+# old MinervaMVP-hosted workflow are NOT needed here. The release job
+# now writes to its own repo and uses the default `GITHUB_TOKEN` with
+# `permissions: contents: write`.
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+env:
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+jobs:
+  verify-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Verify tag matches internal version
+        run: |
+          # Strip 'desktop-v' prefix from tag (e.g. 'desktop-v0.1.10' -> '0.1.10')
+          TAG_VERSION="${GITHUB_REF_NAME#desktop-v}"
+
+          # Extract version from each of the three source files
+          TAURI_VERSION=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          PKG_VERSION=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
+          CARGO_VERSION=$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+
+          echo "Tag:          $TAG_VERSION"
+          echo "tauri.conf:   $TAURI_VERSION"
+          echo "package.json: $PKG_VERSION"
+          echo "Cargo.toml:   $CARGO_VERSION"
+
+          FAIL=0
+          if [ "$TAG_VERSION" != "$TAURI_VERSION" ]; then
+            echo "::error::Tag $TAG_VERSION does not match tauri.conf.json version $TAURI_VERSION"
+            FAIL=1
+          fi
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG_VERSION does not match package.json version $PKG_VERSION"
+            FAIL=1
+          fi
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag $TAG_VERSION does not match Cargo.toml version $CARGO_VERSION"
+            FAIL=1
+          fi
+          exit $FAIL
+
+  build:
+    needs: verify-version
+    environment: desktop-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+          # Linux builds disabled — no installed user base on Linux today.
+          # To re-enable: add an ubuntu-22.04 / x86_64-unknown-linux-gnu
+          # entry, restore the "Install Linux dependencies" step, add
+          # "deb" + "appimage" back to bundle.targets in tauri.conf.json,
+          # and add a linux-x86_64 entry to the latest.json builder.
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        with:
+          workspaces: src-tauri
+          # Per-target cache so cross-compiled artifacts don't get reused
+          # across architectures (e.g. aarch64 vs x86_64 macOS).
+          key: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5  # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          args: --target ${{ matrix.target }}
+
+      - name: Generate SBOM (CycloneDX) for built app
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: minerva-desktop-${{ matrix.target }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.json
+            minerva-desktop-${{ matrix.target }}.cdx.json
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: desktop-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | head -50
+
+      - name: Collect release files
+        run: |
+          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          mkdir -p release
+
+          # Generic copy for files whose names are already unique per platform/arch.
+          find artifacts -type f \( \
+            -name "*.dmg" -o \
+            -name "*.msi" -o \
+            -name "*.msi.sig" -o \
+            -name "*.exe" -o \
+            -name "*.exe.sig" -o \
+            -name "*.cdx.json" \
+          \) -exec cp {} release/ \;
+
+          # macOS .app.tar.gz: Tauri names them with the bare product name (no
+          # version, no arch) so the two arches collide if copied generically.
+          # Rename per-arch to match the URLs the latest.json manifest builds.
+          MAC_AARCH64="artifacts/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Minerva Coach.app.tar.gz"
+          MAC_X64="artifacts/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Minerva Coach.app.tar.gz"
+          cp "$MAC_AARCH64"     "release/Minerva Coach_${VERSION}_aarch64.app.tar.gz"
+          cp "$MAC_AARCH64.sig" "release/Minerva Coach_${VERSION}_aarch64.app.tar.gz.sig"
+          cp "$MAC_X64"         "release/Minerva Coach_${VERSION}_x64.app.tar.gz"
+          cp "$MAC_X64.sig"     "release/Minerva Coach_${VERSION}_x64.app.tar.gz.sig"
+
+          echo "Release files:"
+          ls -la release/
+
+      # Build the combined updater manifest. tauri-action produces a
+      # per-platform latest.json per build, but the installed app fetches a
+      # single URL that must list ALL platforms. We construct it here by
+      # reading the .sig files we just collected.
+      - name: Build latest.json manifest
+        run: |
+          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BASE="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}"
+
+          # Files on disk use the product name "Minerva Coach" (with space);
+          # GitHub rewrites spaces to periods in release asset URLs.
+          # Windows: MSI matches the installer type users currently download
+          # (mismatched installer types can fail on update).
+          # macOS: updater consumes .app.tar.gz, not .dmg — the .dmg is for
+          # first-install only.
+          WIN_SIG=$(cat "release/Minerva Coach_${VERSION}_x64_en-US.msi.sig")
+          MAC_X64_SIG=$(cat "release/Minerva Coach_${VERSION}_x64.app.tar.gz.sig")
+          MAC_ARM_SIG=$(cat "release/Minerva Coach_${VERSION}_aarch64.app.tar.gz.sig")
+
+          cat > release/latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "See release notes at https://github.com/${{ github.repository }}/releases/tag/${GITHUB_REF_NAME}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${WIN_SIG}",
+                "url": "${BASE}/Minerva.Coach_${VERSION}_x64_en-US.msi"
+              },
+              "darwin-x86_64": {
+                "signature": "${MAC_X64_SIG}",
+                "url": "${BASE}/Minerva.Coach_${VERSION}_x64.app.tar.gz"
+              },
+              "darwin-aarch64": {
+                "signature": "${MAC_ARM_SIG}",
+                "url": "${BASE}/Minerva.Coach_${VERSION}_aarch64.app.tar.gz"
+              }
+            }
+          }
+          EOF
+
+          echo "Generated latest.json:"
+          cat release/latest.json
+
+      - name: Create release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Minerva Coach ${{ github.ref_name }}"
+          body: |
+            ## Minerva Coach ${{ github.ref_name }}
+
+            Download the installer for your platform:
+            - **Windows**: `.msi`
+            - **macOS (Apple Silicon)**: `aarch64.dmg`
+            - **macOS (Intel)**: `x64.dmg`
+
+            The app auto-updates after installation.
+
+            ---
+
+            ### Installing on Windows
+
+            Windows SmartScreen will show a "Windows protected your PC" warning
+            for unsigned apps. To install:
+
+            1. Click **More info**
+            2. Click **Run anyway**
+            3. Complete the installer
+
+            This is normal for new apps. Minerva Coach is not yet signed with a
+            code-signing certificate — we'll add one as we grow. The app is
+            identical to what a signed installer would provide; the warning
+            only indicates that our publisher identity hasn't been verified by
+            Microsoft.
+
+            ### Installing on macOS
+
+            Open the `.dmg` and drag **Minerva Coach** to **Applications**.
+            The app is signed with a Developer ID certificate and notarized by
+            Apple — Gatekeeper opens it without warnings.
+
+            Pick `aarch64` for M1/M2/M3 Macs, `x64` for older Intel Macs.
+
+            ### Uninstalling
+
+            In the app: click the ⓘ button, then **Sign out**, then use
+            Windows **Settings → Apps → Installed apps** to uninstall.
+            Full steps: https://github.com/${{ github.repository }}/blob/main/UNINSTALL.md
+          draft: true
+          files: release/*

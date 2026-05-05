@@ -1,0 +1,39 @@
+# cargo-about configuration for THIRD_PARTY_LICENSES generation.
+# Run via the .github/workflows/licenses.yml workflow, or locally with:
+#
+#   cargo about generate about.hbs > ../THIRD_PARTY_LICENSES.md
+#
+# The list of accepted licenses below is intentionally permissive:
+# anything in this set is compatible with the project's MIT license
+# for redistribution as a bundled binary. If a new dependency
+# introduces a license not in this list, cargo-about will fail and
+# the dependency must be reviewed before it's accepted.
+
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MPL-2.0",
+    "OpenSSL",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+
+# Treat targets we actually ship as the universe; ignore other-platform
+# deps that would otherwise pad the list.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+
+# Only include direct + transitive deps of the binary; skip dev/build
+# tooling that doesn't ship.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true

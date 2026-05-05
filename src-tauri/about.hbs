@@ -1,0 +1,33 @@
+# Third-Party Licenses (Rust dependencies)
+
+This file lists the licenses of Rust crates statically linked into
+the Minerva Coach desktop app binary. It is regenerated automatically
+from `Cargo.lock` on every build by `.github/workflows/licenses.yml`.
+
+JavaScript dependency licenses are appended after this section under
+"Third-Party Licenses (npm dependencies)".
+
+## Summary
+
+{{#each overview}}
+- **{{name}}**: {{count}} crate(s)
+{{/each}}
+
+## License texts
+
+{{#each licenses}}
+### {{name}}
+
+```
+{{text}}
+```
+
+**Used by:**
+
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}{{#if crate.repository}} ({{crate.repository}}){{/if}}
+{{/each}}
+
+---
+
+{{/each}}
