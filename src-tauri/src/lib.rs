@@ -10,6 +10,7 @@
 
 mod auth;
 mod commands;
+mod error_chain;
 mod presence;
 mod process_detector;
 mod socket_proxy;

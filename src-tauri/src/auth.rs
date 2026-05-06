@@ -27,6 +27,8 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 use tiny_http::Method;
 
+use crate::error_chain;
+
 const KEYRING_SERVICE: &str = "com.minervacoach.desktop";
 const KEYRING_KEY: &str = "auth_token";
 
@@ -98,21 +100,33 @@ fn http_client() -> reqwest::Client {
 }
 
 /// Ask the backend for a one-time nonce that authorizes a single login
-/// attempt. Returns None on any failure — caller logs and aborts.
-async fn fetch_auth_nonce(api_url: &str) -> Option<String> {
+/// attempt. Returns the nonce on success, an error string with full
+/// reqwest source chain on failure — caller surfaces that into the
+/// `auth-complete` event so the ConnectionIssueModal can show the real
+/// reason (TLS / DNS / connection refused).
+async fn fetch_auth_nonce(api_url: &str) -> Result<String, String> {
     let url = format!("{api_url}/api/v1/desktop/auth-prepare");
-    let resp = http_client().post(&url).send().await.ok()?;
+    let resp = http_client()
+        .post(&url)
+        .send()
+        .await
+        .map_err(|e| {
+            format!("auth-prepare request failed: {}", error_chain::format_chain(&e))
+        })?;
     if !resp.status().is_success() {
-        log::error!(
-            "auth-prepare returned non-success status: {}",
+        return Err(format!(
+            "auth-prepare returned HTTP {}",
             resp.status()
-        );
-        return None;
+        ));
     }
-    let body: serde_json::Value = resp.json().await.ok()?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("auth-prepare invalid JSON: {}", error_chain::format_chain(&e)))?;
     body.get("nonce")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+        .ok_or_else(|| "auth-prepare response missing nonce".to_string())
 }
 
 /// Trade `{code, code_verifier}` for a bearer token. Returns the token on
@@ -131,7 +145,9 @@ async fn exchange_code(
         }))
         .send()
         .await
-        .map_err(|e| format!("auth-exchange request failed: {e}"))?;
+        .map_err(|e| {
+            format!("auth-exchange request failed: {}", error_chain::format_chain(&e))
+        })?;
     if !resp.status().is_success() {
         let status = resp.status();
         return Err(format!("auth-exchange returned {status}"));
@@ -139,7 +155,9 @@ async fn exchange_code(
     let body: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("auth-exchange invalid JSON: {e}"))?;
+        .map_err(|e| {
+            format!("auth-exchange invalid JSON: {}", error_chain::format_chain(&e))
+        })?;
     body.get("token")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
@@ -176,13 +194,10 @@ pub fn start_auth_flow(app: AppHandle) {
         };
 
         let nonce = match runtime.block_on(fetch_auth_nonce(&api_url)) {
-            Some(n) => n,
-            None => {
-                log::error!("Failed to fetch auth nonce from backend");
-                let _ = app_clone.emit(
-                    "auth-complete",
-                    AuthResult::error("Could not reach Minerva backend"),
-                );
+            Ok(n) => n,
+            Err(e) => {
+                log::error!("Failed to fetch auth nonce from backend: {e}");
+                let _ = app_clone.emit("auth-complete", AuthResult::error(&e));
                 return;
             }
         };

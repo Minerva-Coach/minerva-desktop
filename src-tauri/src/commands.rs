@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::auth;
+use crate::error_chain;
 use crate::process_detector::MeetingState;
 use crate::socket_proxy::SocketState;
 
@@ -308,7 +309,11 @@ pub async fn api_request(
         req = req.body(body);
     }
 
-    let resp = req.send().await.map_err(|e| format!("Request failed: {e}"))?;
+    let resp = req.send().await.map_err(|e| {
+        // Preserve the source chain — reqwest's Display alone collapses
+        // TLS / DNS / connection-refused all to "error sending request".
+        format!("Request failed: {}", error_chain::format_chain(&e))
+    })?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
 

@@ -12,6 +12,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use crate::auth;
+use crate::error_chain;
 use crate::process_detector::MeetingState;
 
 /// How often to heartbeat during an active meeting.
@@ -88,7 +89,7 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
                                 );
                             }
                             Err(e) => {
-                                let chain = format_reqwest_error_chain(&e);
+                                let chain = error_chain::format_chain(&e);
                                 log::warn!("Presence heartbeat error: {chain}");
                                 let _ = app.emit("presence-error", chain);
                             }
@@ -122,15 +123,3 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
     });
 }
 
-/// Render a `reqwest::Error` and its `source()` chain as a single string.
-/// `reqwest::Error`'s `Display` impl alone often shows just "error sending
-/// request" — the actual cause (DNS / TLS / refused) is in the chain.
-fn format_reqwest_error_chain(err: &reqwest::Error) -> String {
-    let mut parts = vec![err.to_string()];
-    let mut src: Option<&dyn std::error::Error> = std::error::Error::source(err);
-    while let Some(s) = src {
-        parts.push(s.to_string());
-        src = s.source();
-    }
-    parts.join(" -> ")
-}

@@ -16,6 +16,7 @@ use rust_socketio::{
 use tauri::{AppHandle, Emitter};
 
 use crate::auth;
+use crate::error_chain;
 
 /// Shared state for the socket proxy.
 ///
@@ -146,7 +147,7 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
                     }
                 }
                 Err(e) => {
-                    let chain = format_error_chain(&e);
+                    let chain = error_chain::format_chain(&e);
                     log::warn!("Socket proxy: connection failed: {chain}");
                     // Surface the failure to the React panel so it can show a
                     // user-shareable diagnostic in the Connection Issue modal.
@@ -166,17 +167,3 @@ pub fn start_socket_proxy(app: AppHandle, state: Arc<SocketState>) {
     });
 }
 
-/// Walk an error and its `source()` chain into a single human-readable
-/// string. The default `Display` for an error often hides the actual cause
-/// (e.g. shows "I/O error" but not "TLS handshake failure: certificate
-/// chain not trusted"). The full chain is what support needs to diagnose
-/// connection problems.
-fn format_error_chain(err: &dyn std::error::Error) -> String {
-    let mut parts = vec![err.to_string()];
-    let mut src = err.source();
-    while let Some(s) = src {
-        parts.push(s.to_string());
-        src = s.source();
-    }
-    parts.join(" -> ")
-}
