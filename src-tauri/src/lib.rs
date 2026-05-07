@@ -141,7 +141,7 @@ pub fn run() {
 
                     if let Some(overlay) = app.get_webview_window("overlay") {
                         let overlay_w = 340;
-                        let overlay_h = 220;
+                        let overlay_h = 440;
                         let overlay_x = panel_x - overlay_w - 10;
                         let overlay_y = mp.y + (ms.height as i32 - overlay_h) / 2;
                         let _ = overlay.set_position(tauri::PhysicalPosition {
