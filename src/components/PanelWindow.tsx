@@ -305,8 +305,20 @@ export function PanelWindow() {
     await invoke("hide_windows");
   };
 
+  // The panel is draggable from any non-interactive surface, so the user can
+  // grab almost anywhere — title bar, empty content gaps, modal backgrounds.
+  // Skip drag on interactive elements (buttons, inputs, links, etc.) and on
+  // anything explicitly opted-out via [data-no-drag].
   const handleDrag = async (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(
+        "button, a, input, textarea, select, label, [role='button'], [role='link'], [data-no-drag]"
+      )
+    ) {
+      return;
+    }
     await getCurrentWebviewWindow().startDragging();
   };
 
@@ -549,7 +561,7 @@ export function PanelWindow() {
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-no-drag>
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
         {!macPermissionGranted ? (
           <MacosPermissionGate
             onGranted={() => setMacPermissionGranted(true)}
