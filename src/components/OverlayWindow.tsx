@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { useSocket } from "../hooks/use-socket";
 import { FloatingIcon } from "./overlay/FloatingIcon";
 import { BehaviorStations } from "./overlay/BehaviorStations";
@@ -13,18 +14,31 @@ interface ActiveIcon {
 
 let iconCounter = 0;
 
+// Logical-pixel height of the header drag strip. Must match the header div's
+// rendered height — keep in sync if the header layout changes.
+const HEADER_DRAG_HEIGHT = 44;
+
+// Polling interval for cursor-over-header detection. Tauri only supports
+// per-window click-through, so we re-check the cursor at this rate to flip
+// `setIgnoreCursorEvents` on entry/exit. ~12 Hz is fine for hover latency
+// and barely registers in IPC traffic.
+const CURSOR_POLL_MS = 80;
+
 /**
  * Transparent overlay above the meeting window.
  *
  * Two modes:
  *
- * 1. **Normal** — click-through HUD. Shows behavior count/target stations
- *    at the top of the strip and transient attaboy icons that float up
- *    past them when coaching events fire.
+ * 1. **Normal** — HUD that's click-through everywhere *except* the header
+ *    strip. The header is a permanent drag handle: hovering it disables
+ *    click-through, mousedown calls `startDragging()`. Behavior stations
+ *    and transient floating icons stay click-through so the meeting
+ *    underneath remains usable.
  *
- * 2. **Reposition** — toggled from the panel's About modal. Click-through
- *    is turned off, a dashed border appears, and the user can drag the
- *    window to a new position. Click the overlay or press Esc to exit.
+ * 2. **Reposition (fallback)** — entered from the About modal. Click-through
+ *    is turned off for the *whole* window, a dashed border appears, and the
+ *    user can drag from anywhere. Useful if the header is off-screen. Click
+ *    the overlay or press Esc to exit.
  *
  * Setting the window click-through (`setIgnoreCursorEvents(true)`) on a
  * hidden window panics tao on Linux, so we only flip it after visibility.
@@ -34,13 +48,55 @@ export function OverlayWindow() {
   const [icons, setIcons] = useState<ActiveIcon[]>([]);
   const [visible, setVisible] = useState(false);
   const [repositioning, setRepositioning] = useState(false);
+  const [cursorInHeader, setCursorInHeader] = useState(false);
 
-  // Click-through policy: ON when visible AND NOT repositioning.
+  // Click-through policy:
+  //   - Off (interactive) when repositioning OR cursor is over the header.
+  //   - On (passes through) otherwise.
   useEffect(() => {
     if (!visible) return;
+    const ignoreEvents = !repositioning && !cursorInHeader;
     getCurrentWebviewWindow()
-      .setIgnoreCursorEvents(!repositioning)
+      .setIgnoreCursorEvents(ignoreEvents)
       .catch(() => {});
+  }, [visible, repositioning, cursorInHeader]);
+
+  // Poll cursor position to detect when it enters/leaves the header rect.
+  // We can't use DOM mouseenter/leave because the window is click-through
+  // when the cursor is *outside* the header — DOM events never fire.
+  useEffect(() => {
+    if (!visible || repositioning) {
+      setCursorInHeader(false);
+      return;
+    }
+    const win = getCurrentWebviewWindow();
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const [cx, cy] = await invoke<[number, number]>("get_cursor_position");
+        const [wpos, wsize, scale] = await Promise.all([
+          win.outerPosition(),
+          win.outerSize(),
+          win.scaleFactor(),
+        ]);
+        const headerHeightPx = HEADER_DRAG_HEIGHT * scale;
+        const over =
+          cx >= wpos.x &&
+          cx < wpos.x + wsize.width &&
+          cy >= wpos.y &&
+          cy < wpos.y + headerHeightPx;
+        if (!cancelled) setCursorInHeader(over);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const interval = window.setInterval(tick, CURSOR_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [visible, repositioning]);
 
   // Track meeting lifecycle from Rust and reposition toggle from panel.
@@ -96,25 +152,42 @@ export function OverlayWindow() {
     };
   }, [addIcon]);
 
-  // Reposition mode: let the user drag the window. Also exit if the user
-  // "clicks" without moving (detected via position compare, because on
-  // Windows the native drag consumes the mouseup and no `click` event fires
-  // after startDragging() resolves).
-  const handleRepositionMouseDown = useCallback(async (e: React.MouseEvent) => {
-    if (!repositioning) return;
-    e.preventDefault();
-    const win = getCurrentWebviewWindow();
-    try {
-      const before = await win.outerPosition();
-      await win.startDragging();
-      const after = await win.outerPosition();
-      if (before.x === after.x && before.y === after.y) {
-        setRepositioning(false);
+  // Reposition-mode (fallback) drag from anywhere. Same click-without-move
+  // exit detection as before — on Windows the native drag consumes the
+  // mouseup so no `click` event fires after startDragging() resolves.
+  const handleRepositionMouseDown = useCallback(
+    async (e: React.MouseEvent) => {
+      if (!repositioning) return;
+      e.preventDefault();
+      const win = getCurrentWebviewWindow();
+      try {
+        const before = await win.outerPosition();
+        await win.startDragging();
+        const after = await win.outerPosition();
+        if (before.x === after.x && before.y === after.y) {
+          setRepositioning(false);
+        }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
-    }
-  }, [repositioning]);
+    },
+    [repositioning]
+  );
+
+  // Header drag in normal mode. No mode-exit logic here — there's no mode
+  // to exit; a no-movement click is just a no-op.
+  const handleHeaderMouseDown = useCallback(
+    async (e: React.MouseEvent) => {
+      if (repositioning) return; // let the whole-window handler take it
+      e.preventDefault();
+      try {
+        await getCurrentWebviewWindow().startDragging();
+      } catch {
+        /* ignore */
+      }
+    },
+    [repositioning]
+  );
 
   // Esc exits reposition mode too.
   useEffect(() => {
@@ -128,7 +201,7 @@ export function OverlayWindow() {
 
   return (
     <div
-      className={`w-full h-full relative overflow-hidden rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 ${
+      className={`w-full h-full relative overflow-hidden rounded-xl bg-slate-900/45 backdrop-blur-md border border-white/30 shadow-[0_4px_20px_rgba(0,0,0,0.45)] ${
         repositioning ? "border-2 border-dashed border-blue-400 cursor-move" : ""
       }`}
       onMouseDown={handleRepositionMouseDown}
@@ -151,23 +224,31 @@ export function OverlayWindow() {
       )}
 
       <div
-        className="px-2 pt-1.5 pb-1 text-center"
-        style={{
-          // 4-corner hard outline + soft drop shadow so the text stays
-          // readable on any meeting background (light slides, dark video, etc).
-          textShadow:
-            "1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000, 0 0 4px rgba(0,0,0,0.9)",
-        }}
+        className="px-3 py-2 bg-slate-950/55 border-b border-white/25 flex items-center justify-center gap-2 select-none cursor-grab active:cursor-grabbing"
+        style={{ height: `${HEADER_DRAG_HEIGHT}px` }}
+        onMouseDown={handleHeaderMouseDown}
+        title="Drag to move"
       >
-        <p className="text-[15px] font-bold text-white leading-tight">
+        <span
+          className="text-white/60 text-[14px] leading-none"
+          aria-hidden="true"
+        >
+          ⋮⋮
+        </span>
+        <p
+          className="text-[14px] font-bold text-white leading-tight tracking-wide"
+          style={{
+            textShadow:
+              "1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000",
+          }}
+        >
           Minerva Core Behavior Counts
-        </p>
-        <p className="text-[12px] font-medium text-white leading-tight">
-          Reposition in the About menu — click <span aria-hidden="true">ⓘ</span>
         </p>
       </div>
 
-      <BehaviorStations behaviors={lastChartData?.data.behaviors ?? []} />
+      <div className="px-2 pt-2">
+        <BehaviorStations behaviors={lastChartData?.data.behaviors ?? []} />
+      </div>
 
       {icons.map((icon) => (
         <FloatingIcon key={icon.id} message={icon.message} />

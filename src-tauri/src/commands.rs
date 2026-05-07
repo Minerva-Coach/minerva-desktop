@@ -200,6 +200,18 @@ pub async fn set_overlay_visible(app: AppHandle, visible: bool) -> Result<(), St
     Ok(())
 }
 
+/// Screen-space cursor position in physical pixels.
+///
+/// Used by the overlay to decide whether the cursor is over its drag-handle
+/// header. Tauri only supports per-*window* click-through, so the overlay
+/// polls this and toggles `setIgnoreCursorEvents` on header entry/exit —
+/// preserving HUD-style click-through everywhere except the header strip.
+#[tauri::command]
+pub fn get_cursor_position(app: AppHandle) -> Result<(f64, f64), String> {
+    let pos = app.cursor_position().map_err(|e| e.to_string())?;
+    Ok((pos.x, pos.y))
+}
+
 /// Enter overlay reposition mode. Makes sure the overlay window is visible
 /// (so it can receive cursor events once click-through is toggled off on
 /// the frontend side) and fires the `overlay-reposition-enter` event that

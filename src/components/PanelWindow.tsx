@@ -93,6 +93,22 @@ export function PanelWindow() {
     if (hasBotInMeeting) refreshAccounts();
   }, [hasBotInMeeting]);
 
+  // Re-fetch accounts when the socket transitions to connected. The
+  // accounts hook only retries on isAuthenticated transitions, so a
+  // transient backend hiccup at startup (cold-boot Wi-Fi association,
+  // local Flask still warming up, momentary minervacoach.com blip) used
+  // to leave the user stuck on a stale "Couldn't load your account"
+  // view. The socket proxy already retries every 5s -- when it finally
+  // connects, we now know the backend is reachable, so accounts piggybacks
+  // on that signal to self-heal.
+  const prevSocketConnected = useRef(false);
+  useEffect(() => {
+    if (isConnected && !prevSocketConnected.current) {
+      refreshAccounts();
+    }
+    prevSocketConnected.current = isConnected;
+  }, [isConnected, refreshAccounts]);
+
   // When the bot joins a meeting, Zoom often transitions to full-screen
   // meeting mode which can demote always-on-top windows and occasionally
   // minimize the panel on Windows. Defensively re-assert the panel's
@@ -126,16 +142,27 @@ export function PanelWindow() {
     }
     prevAuthError.current = lastAuthError;
   }, [lastAuthError]);
-  // Same auto-open behavior for accounts: silent backend failures used to
-  // route the user to the ConnectPlatformGate as if their integrations had
-  // been wiped. Surface the error instead so they don't reauthorize Zoom
-  // for nothing.
+  // Auto-open the modal for accounts errors, but DEFERRED by 8 seconds so
+  // a transient cold-boot failure (Flask still starting, Wi-Fi not yet
+  // associated, momentary minervacoach.com blip) doesn't pop a scary
+  // diagnostic at the user. The socket-reconnect effect above will
+  // refresh accounts as soon as the backend comes back -- if that
+  // succeeds inside the 8s window, the cleanup function cancels the
+  // open. If the error persists past 8s it's a real problem worth
+  // surfacing. The inline "Couldn't load your account" view still
+  // appears immediately for users who happen to be looking, so we don't
+  // hide the failure state -- just the unprompted modal flash.
   const prevAccountsError = useRef<string | null>(null);
   useEffect(() => {
-    if (accountsError && accountsError !== prevAccountsError.current) {
-      setConnectionIssueOpen(true);
+    if (!accountsError || accountsError === prevAccountsError.current) {
+      prevAccountsError.current = accountsError;
+      return;
     }
     prevAccountsError.current = accountsError;
+    const timer = setTimeout(() => {
+      setConnectionIssueOpen(true);
+    }, 8000);
+    return () => clearTimeout(timer);
   }, [accountsError]);
   const [postMeetingId, setPostMeetingId] = useState<number | null>(null);
   const [postMeetingMock, setPostMeetingMock] = useState<
@@ -305,8 +332,20 @@ export function PanelWindow() {
     await invoke("hide_windows");
   };
 
+  // The panel is draggable from any non-interactive surface, so the user can
+  // grab almost anywhere — title bar, empty content gaps, modal backgrounds.
+  // Skip drag on interactive elements (buttons, inputs, links, etc.) and on
+  // anything explicitly opted-out via [data-no-drag].
   const handleDrag = async (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(
+        "button, a, input, textarea, select, label, [role='button'], [role='link'], [data-no-drag]"
+      )
+    ) {
+      return;
+    }
     await getCurrentWebviewWindow().startDragging();
   };
 
@@ -549,7 +588,7 @@ export function PanelWindow() {
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-no-drag>
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
         {!macPermissionGranted ? (
           <MacosPermissionGate
             onGranted={() => setMacPermissionGranted(true)}

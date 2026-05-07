@@ -132,10 +132,7 @@ export function PostMeetingModal({
   }, [meetingId, mockData]);
 
   return (
-    <div
-      className="absolute inset-0 z-10 bg-gray-900 text-white flex flex-col rounded-xl overflow-hidden"
-      data-no-drag
-    >
+    <div className="absolute inset-0 z-10 bg-gray-900 text-white flex flex-col rounded-xl overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
         <span className="text-xs font-semibold tracking-wide text-gray-300">
           Post-Meeting Feedback
