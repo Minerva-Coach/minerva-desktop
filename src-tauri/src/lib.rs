@@ -72,6 +72,7 @@ pub fn run() {
             commands::get_diagnostic_context,
             commands::set_overlay_visible,
             commands::start_overlay_reposition,
+            commands::get_cursor_position,
             commands::open_icon_key,
             commands::is_welcome_acknowledged,
             commands::acknowledge_welcome,
