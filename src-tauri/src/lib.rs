@@ -13,7 +13,6 @@ mod commands;
 mod error_chain;
 mod presence;
 mod process_detector;
-mod socket_proxy;
 #[cfg(not(target_os = "linux"))]
 mod tray;
 
@@ -22,14 +21,12 @@ use std::sync::Arc;
 use tauri::{Emitter, Manager};
 
 use process_detector::MeetingState;
-use socket_proxy::SocketState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
 
     let meeting_state = Arc::new(MeetingState::new());
-    let socket_state = Arc::new(SocketState::new());
 
     tauri::Builder::default()
         // Single-instance must be registered first so a second launch is
@@ -57,17 +54,16 @@ pub fn run() {
             None,
         ))
         .manage(meeting_state.clone())
-        .manage(socket_state.clone())
         .invoke_handler(tauri::generate_handler![
             commands::start_login,
             commands::logout,
             commands::is_authenticated,
             commands::is_in_meeting,
             commands::get_api_url,
+            commands::get_auth_token,
             commands::hide_windows,
             commands::show_windows,
             commands::api_request,
-            commands::send_meeting_status,
             commands::get_app_version,
             commands::get_diagnostic_context,
             commands::set_overlay_visible,
@@ -94,8 +90,10 @@ pub fn run() {
             let state_clone = meeting_state.clone();
             presence::start_heartbeat_loop(handle.clone(), state_clone);
 
-            // SocketIO proxy — connects from Rust to bypass webview TLS restrictions
-            socket_proxy::start_socket_proxy(handle.clone(), socket_state.clone());
+            // SocketIO now runs in the panel WebView (use-socket.ts) using the
+            // system network stack (WKWebView/WebView2/webkit2gtk's TLS), which
+            // tolerates corporate proxies, MDM-installed CAs, and Private
+            // Relay that rustls/native-tls don't see through.
 
             // Enable launch-at-login by default in release builds. Skipped
             // in dev so we don't register the throwaway debug binary as a
