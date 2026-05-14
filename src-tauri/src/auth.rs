@@ -96,7 +96,7 @@ fn http_client() -> reqwest::Client {
         .danger_accept_invalid_certs(cfg!(debug_assertions))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+        .expect("reqwest client build failed")
 }
 
 /// Ask the backend for a one-time nonce that authorizes a single login

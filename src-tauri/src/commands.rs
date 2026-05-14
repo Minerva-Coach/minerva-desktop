@@ -11,7 +11,6 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder
 use crate::auth;
 use crate::error_chain;
 use crate::process_detector::MeetingState;
-use crate::socket_proxy::SocketState;
 
 /// Filesystem location of the marker file that records whether the user has
 /// dismissed the post-onboarding welcome screen. Stored in the app's
@@ -36,7 +35,7 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .danger_accept_invalid_certs(cfg!(debug_assertions))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+        .expect("reqwest client build failed")
 });
 
 /// Start the browser-based OAuth login flow.
@@ -101,6 +100,20 @@ pub fn is_in_meeting(state: State<'_, Arc<MeetingState>>) -> bool {
 #[tauri::command]
 pub fn get_api_url() -> String {
     auth::get_api_url()
+}
+
+/// Hand the stored bearer token to the panel WebView for socket.io auth.
+///
+/// `useAuth` deliberately doesn't expose the token (api_request reads it
+/// from the keychain in-process), but the JS-side socket.io-client needs
+/// it in the handshake `auth` payload. Tradeoff accepted: the token sits
+/// in JS memory only while the panel is alive, our CSP forbids inline /
+/// remote scripts, and the WebView never renders user-controlled HTML.
+/// If this stops feeling acceptable, swap to a short-lived server-issued
+/// socket ticket (POST /api/v1/desktop/socket-ticket → ~5min token).
+#[tauri::command]
+pub fn get_auth_token() -> Option<String> {
+    auth::get_token()
 }
 
 /// Get the app's compile-time version (from Cargo.toml).
@@ -412,36 +425,6 @@ mod tests {
         let u = build_api_url("https://minervacoach.com", "/a/b/../c").unwrap();
         assert!(u.starts_with("https://minervacoach.com"));
     }
-}
-
-/// Emit a "meeting_status" event on the shared SocketIO connection.
-///
-/// Mirrors the companion app's `How's it going?` feature — the user reports
-/// their subjective read on the meeting, backend logs it against the
-/// meeting_id for the product-metrics pipeline.
-///
-/// Expected status values: "going_well" | "neutral" | "struggling"
-/// (backend accepts any string; these three are what the UI emits).
-#[tauri::command]
-pub async fn send_meeting_status(
-    status: String,
-    meeting_id: i64,
-    state: State<'_, Arc<SocketState>>,
-) -> Result<(), String> {
-    let client = state
-        .client
-        .lock()
-        .await
-        .clone()
-        .ok_or_else(|| "Socket not connected".to_string())?;
-
-    client
-        .emit(
-            "meeting_status",
-            serde_json::json!({ "status": status, "meeting_id": meeting_id }),
-        )
-        .await
-        .map_err(|e| format!("Failed to emit meeting_status: {e}"))
 }
 
 /// Whether the user has dismissed the post-onboarding welcome screen.

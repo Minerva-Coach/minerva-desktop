@@ -31,8 +31,13 @@ export function PanelWindow() {
 
   const { isAuthenticated, loading, login, logout, lastAuthError } = useAuth();
   const { status: updateStatus, isStuck: updaterStuck } = useUpdaterContext();
-  const { isConnected, activeMeetings, lastChartData, lastSocketError } =
-    useSocket();
+  const {
+    isConnected,
+    activeMeetings,
+    lastChartData,
+    lastSocketError,
+    sendMeetingStatus,
+  } = useSocket();
   const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
   // Clear stats display when the bot isn't actively coaching — otherwise the
@@ -256,17 +261,10 @@ export function PanelWindow() {
     if (!hasBotInMeeting) setMeetingVibe(null);
   }, [hasBotInMeeting]);
 
-  const handleVibeChange = async (vibe: MeetingVibe) => {
+  const handleVibeChange = (vibe: MeetingVibe) => {
     setMeetingVibe(vibe);
     if (!activeMeetingId) return;
-    try {
-      await invoke("send_meeting_status", {
-        status: vibe,
-        meetingId: activeMeetingId,
-      });
-    } catch (err) {
-      console.warn("send_meeting_status failed:", err);
-    }
+    sendMeetingStatus(vibe, activeMeetingId);
   };
 
   // Single dispatch path used by the inline paste form, the one-click

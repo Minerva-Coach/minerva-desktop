@@ -31,7 +31,7 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
             // Accept self-signed certs in debug mode (local dev uses https://127.0.0.1:8000)
             .danger_accept_invalid_certs(cfg!(debug_assertions))
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            .expect("reqwest client build failed");
         let mut was_in_meeting = false;
         let mut heartbeat_counter: u64 = 0;
 

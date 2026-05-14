@@ -1,6 +1,6 @@
 [package]
 name = "minerva-desktop"
-version = "0.1.13"
+version = "0.1.14"
 description = "Minerva Coach Desktop Overlay"
 authors = ["Minerva Research Inc"]
 edition = "2021"
@@ -24,7 +24,7 @@ tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = "0.33"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 tiny_http = "0.12"
 url = "2"
@@ -34,8 +34,6 @@ rand = "0.9"
 sha2 = "0.10"
 base64 = "0.22"
 open = "5"
-rust_socketio = { version = "0.6", features = ["async"] }
-native-tls = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["linux-native"] }
