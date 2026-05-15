@@ -59,39 +59,53 @@ export function PanelWindow() {
     useWelcomeAcknowledged();
   const { inMeeting, meetingUrl: detectedUrl } = useMeetingStatus();
 
-  // Phase 2 host fill-in: when the cmdline-extracted URL has confno but no
-  // pwd= (typically because the user joined from Zoom's own upcoming-meetings
-  // tab rather than a calendar link), ask the backend to look up the
-  // password-bearing join_url via Zoom's /v2/meetings API. Only works for
-  // meetings the authenticated user *hosts* — Zoom 404s otherwise, which
-  // cleanly falls through to the existing one-click attempt → paste-modal
-  // path. See docs/planning/zoom-auto-join-url.md Phase 2.
+  // Two-tier backend fallback when the local cmdline / WMI capture didn't
+  // produce a complete join URL. Both paths are host-only — Zoom 404s for
+  // guests, which cleanly degrades to the paste-link modal.
+  //
+  //   confno but no pwd  →  /api/zoom/meeting/<id>/join-url  (Phase 2)
+  //   no URL at all      →  /api/zoom/meetings/live          (Phase 4)
+  //
+  // Phase 4 covers the host who joins from Zoom's Upcoming-Meetings tab —
+  // no `zoommtg://` URL ever hits a process cmdline, so the Rust extractor
+  // returns None and the WMI subscription sees no launcher process. See
+  // docs/planning/zoom-auto-join-url.md.
   const [augmentedUrl, setAugmentedUrl] = useState<string | null>(null);
   const meetingUrl = augmentedUrl ?? detectedUrl;
 
   useEffect(() => {
     setAugmentedUrl(null);
-    if (!detectedUrl || detectedUrl.includes("?pwd=")) return;
-    const m = detectedUrl.match(/zoom\.us\/j\/(\d+)/);
-    if (!m) return;
-    const confno = m[1];
+
+    // Local extraction already produced a complete URL — nothing to fetch.
+    if (detectedUrl && detectedUrl.includes("?pwd=")) return;
 
     let cancelled = false;
-    apiFetch(`/api/zoom/meeting/${confno}/join-url`)
-      .then(async (resp) => {
+    const apply = async (path: string) => {
+      try {
+        const resp = await apiFetch(path);
         if (cancelled || !resp.ok) return;
         const data = await resp.json().catch(() => null);
         if (cancelled) return;
         if (data?.join_url) setAugmentedUrl(data.join_url);
-      })
-      .catch(() => {
-        // Soft failure — leave detectedUrl in place and let the existing
-        // one-click attempt → paste-fallback path handle it.
-      });
+      } catch {
+        // Soft failure — leave the existing UX in place. Errors here are
+        // expected for guests (404) and offline cases (network); the
+        // paste-link fallback covers both.
+      }
+    };
+
+    if (detectedUrl) {
+      const m = detectedUrl.match(/zoom\.us\/j\/(\d+)/);
+      if (!m) return;
+      apply(`/api/zoom/meeting/${m[1]}/join-url`);
+    } else if (inMeeting) {
+      apply(`/api/zoom/meetings/live`);
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [detectedUrl]);
+  }, [detectedUrl, inMeeting]);
 
   // Re-fetch accounts when bot becomes active (verification creates new identities)
   useEffect(() => {
