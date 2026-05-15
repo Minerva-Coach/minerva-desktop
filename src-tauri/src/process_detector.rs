@@ -7,7 +7,7 @@
 //! - `meeting-started` when an active Zoom meeting is detected
 //! - `meeting-stopped` when the meeting ends (or Zoom closes)
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "linux")]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -68,12 +68,20 @@ const AUDIO_MEETING_SIGNAL: &str = "zoom voiceengine";
 /// Shared state for current meeting status.
 pub struct MeetingState {
     pub in_meeting: AtomicBool,
+    /// On Windows, the WMI subscription stashes URLs captured from the
+    /// short-lived launcher `Zoom.exe` here. The detection loop consults
+    /// the cache on each meeting-started transition so the tray-already-
+    /// running case still produces a one-click join URL.
+    #[cfg(target_os = "windows")]
+    pub url_cache: crate::zoom_url_cache::ZoomUrlCache,
 }
 
 impl MeetingState {
     pub fn new() -> Self {
         Self {
             in_meeting: AtomicBool::new(false),
+            #[cfg(target_os = "windows")]
+            url_cache: crate::zoom_url_cache::ZoomUrlCache::new(),
         }
     }
 }
@@ -117,7 +125,7 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
             // managed by the frontend — no Rust show/hide calls, which
             // trigger a tao/GTK panic on Linux via glib channel dispatch.
             if in_meeting && !was_in_meeting {
-                let meeting_url = extract_zoom_meeting_url();
+                let meeting_url = extract_zoom_meeting_url(&state);
                 // Don't log the URL — it identifies a specific meeting (P3-G).
                 log::debug!("Active Zoom meeting detected (url present: {})", meeting_url.is_some());
                 let _ = app.emit("meeting-started", MeetingStartedPayload { meeting_url });
@@ -161,7 +169,7 @@ fn extract_url_param(haystack: &str, name: &str) -> Option<String> {
 /// and let the caller decide what to do (Phase 1 tries it once and falls back
 /// to a paste-link popup on failure).
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn build_zoom_url_from_cmdline(cmdline: &str) -> Option<String> {
+pub(crate) fn build_zoom_url_from_cmdline(cmdline: &str) -> Option<String> {
     let confno = extract_url_param(cmdline, "confno")?;
     if !confno.chars().all(|c| c.is_ascii_digit()) {
         return None;
@@ -174,19 +182,52 @@ fn build_zoom_url_from_cmdline(cmdline: &str) -> Option<String> {
     Some(url)
 }
 
-/// Extract the Zoom meeting URL from the process command line.
+/// Extract the Zoom meeting URL for the active meeting.
 ///
 /// Zoom's desktop client receives its launch URL (`zoommtg://...`) on the
-/// command line of the active meeting process. We read that line per-platform
-/// and feed it through `build_zoom_url_from_cmdline()` to produce the
-/// Recall-compatible `https://zoom.us/j/{confno}?pwd={pwd}` form.
+/// command line of the launcher process. Linux + macOS read that cmdline
+/// from the active meeting process and feed it through
+/// `build_zoom_url_from_cmdline()` to produce the Recall-compatible
+/// `https://zoom.us/j/{confno}?pwd={pwd}` form.
 ///
-/// Returns `None` when no Zoom process is in a meeting, or when the cmdline
-/// is missing the expected params (manual ID entry, in-app upcoming-meetings
-/// join, or — on macOS — when `ps` truncated the arg list before `pwd=`).
-/// See `docs/planning/zoom-auto-join-url.md` for the broader rollout plan
-/// (Phase 2 backfills the missing-`pwd` case via Zoom OAuth for hosts).
-fn extract_zoom_meeting_url() -> Option<String> {
+/// **Windows is different**: a process's CommandLine is fixed at
+/// CreateProcess time and never updates as Zoom is reused across meetings,
+/// so live-process cmdline scans surface stale URLs forever once a launcher
+/// Zoom.exe sticks around (observed: 3+ hours alive across multiple
+/// meetings). Windows instead relies on a WMI subscription to
+/// `__InstanceCreationEvent`, which captures the cmdline at the moment a
+/// new `Zoom.exe` is created and caches it with a TTL; `take_fresh()`
+/// consumes the entry so a single capture can only satisfy one meeting.
+///
+/// Returns `None` when no fresh URL is available (manual ID entry, in-app
+/// upcoming-meetings join, instant meeting in a pre-running Zoom, or — on
+/// macOS — when `ps` truncated the arg list before `pwd=`). The frontend
+/// falls back to `/api/zoom/meetings/live` (Phase 4, host-only). See
+/// `docs/planning/zoom-auto-join-url.md` for the broader rollout plan.
+fn extract_zoom_meeting_url(state: &MeetingState) -> Option<String> {
+    // Windows: WMI is the only local source of truth. A live-process
+    // cmdline scan looks tempting (the launcher Zoom.exe carries the URL
+    // on its argv), but a process's CommandLine is fixed at CreateProcess
+    // time and never updates — so the same launcher Zoom.exe will keep
+    // surfacing the *first* meeting's URL for the rest of its lifetime
+    // (observed: PID alive for 3+ hours, instant-meeting started in-app,
+    // cmdline still listing the original calendar-link's confno/pwd). The
+    // WMI subscription side-steps this: it reads CommandLine at the
+    // `__InstanceCreationEvent` moment and the cache's `take_fresh()`
+    // consumes the entry on read, so stale data can't survive past one
+    // `meeting-started` emission. When the cache is empty, the desktop
+    // frontend falls back to `/api/zoom/meetings/live` (host-only) — see
+    // PanelWindow.tsx.
+    #[cfg(target_os = "windows")]
+    if let Some(url) = state.url_cache.take_fresh() {
+        log::debug!("Using Zoom URL captured by WMI subscription");
+        return Some(url);
+    }
+    // Suppress unused-parameter warnings on the platforms that don't read
+    // the cache. Cheap and keeps the call sites uniform.
+    #[cfg(not(target_os = "windows"))]
+    let _ = state;
+
     #[cfg(target_os = "linux")]
     {
         // Find zoom PID
@@ -255,75 +296,12 @@ fn extract_zoom_meeting_url() -> Option<String> {
         None
     }
 
+    // Windows: no live-process cmdline scan — see the comment above the
+    // `state.url_cache.take_fresh()` block for why. The early return on a
+    // cache hit is the only successful Windows path here; everything else
+    // falls back to `/api/zoom/meetings/live` in the frontend.
     #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-
-        // CREATE_NO_WINDOW: avoid flashing a console window when spawning
-        // powershell from the GUI process.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-        // Read Zoom.exe's command line via PowerShell CIM. Get-CimInstance
-        // is fast (~200-400ms) and works on Windows 10/11 without elevation
-        // because we read processes owned by the same user. The Filter
-        // clause is restricted to a numeric PID we control, so no injection
-        // surface. We use [Console]::Out.Write to bypass PowerShell's
-        // default formatter, which otherwise wraps long lines at the
-        // console buffer width and would chop the `pwd=` parameter mid-token.
-        //
-        // FUTURE (option 3 in plan): if PowerShell latency or AV heuristics
-        // become problems, drop the spawn and call NtQueryInformationProcess
-        // (ProcessBasicInformation) → read PEB →
-        // RTL_USER_PROCESS_PARAMETERS.CommandLine via ReadProcessMemory.
-        // Sub-millisecond, no child process. The `windows` crate is already
-        // a dep. Skipped for now to keep the change small.
-        //
-        // SECURITY: powershell.exe is signed by Microsoft and shipped with
-        // Windows; spawning it is benign in itself. Once the Tauri binary
-        // is Authenticode-signed for release, AV reputation should follow.
-        // If AV still flags an unsigned binary spawning powershell, the
-        // option-3 PEB read above is the cleanest mitigation.
-
-        let mut sys = System::new();
-        sys.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing(),
-        );
-        let zoom_pids: Vec<u32> = sys
-            .processes()
-            .values()
-            .filter(|p| p.name().to_string_lossy().eq_ignore_ascii_case("zoom.exe"))
-            .map(|p| p.pid().as_u32())
-            .collect();
-
-        for pid in zoom_pids {
-            let script = format!(
-                "[Console]::Out.Write((Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine)"
-            );
-            let output = match Command::new("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-            {
-                Ok(o) => o,
-                Err(e) => {
-                    log::debug!("powershell spawn failed for PID {pid}: {e}");
-                    continue;
-                }
-            };
-            if !output.status.success() {
-                continue;
-            }
-            let cmdline = String::from_utf8_lossy(&output.stdout);
-            if cmdline.contains("confno=") {
-                if let Some(url) = build_zoom_url_from_cmdline(&cmdline) {
-                    return Some(url);
-                }
-            }
-        }
-        None
-    }
+    None
 }
 
 /// Check if Zoom has an active meeting window (not just idle in tray).
