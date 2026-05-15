@@ -68,12 +68,20 @@ const AUDIO_MEETING_SIGNAL: &str = "zoom voiceengine";
 /// Shared state for current meeting status.
 pub struct MeetingState {
     pub in_meeting: AtomicBool,
+    /// On Windows, the WMI subscription stashes URLs captured from the
+    /// short-lived launcher `Zoom.exe` here. The detection loop consults
+    /// the cache on each meeting-started transition so the tray-already-
+    /// running case still produces a one-click join URL.
+    #[cfg(target_os = "windows")]
+    pub url_cache: crate::zoom_url_cache::ZoomUrlCache,
 }
 
 impl MeetingState {
     pub fn new() -> Self {
         Self {
             in_meeting: AtomicBool::new(false),
+            #[cfg(target_os = "windows")]
+            url_cache: crate::zoom_url_cache::ZoomUrlCache::new(),
         }
     }
 }
@@ -117,7 +125,7 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
             // managed by the frontend — no Rust show/hide calls, which
             // trigger a tao/GTK panic on Linux via glib channel dispatch.
             if in_meeting && !was_in_meeting {
-                let meeting_url = extract_zoom_meeting_url();
+                let meeting_url = extract_zoom_meeting_url(&state);
                 // Don't log the URL — it identifies a specific meeting (P3-G).
                 log::debug!("Active Zoom meeting detected (url present: {})", meeting_url.is_some());
                 let _ = app.emit("meeting-started", MeetingStartedPayload { meeting_url });
@@ -161,7 +169,7 @@ fn extract_url_param(haystack: &str, name: &str) -> Option<String> {
 /// and let the caller decide what to do (Phase 1 tries it once and falls back
 /// to a paste-link popup on failure).
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn build_zoom_url_from_cmdline(cmdline: &str) -> Option<String> {
+pub(crate) fn build_zoom_url_from_cmdline(cmdline: &str) -> Option<String> {
     let confno = extract_url_param(cmdline, "confno")?;
     if !confno.chars().all(|c| c.is_ascii_digit()) {
         return None;
@@ -186,7 +194,23 @@ fn build_zoom_url_from_cmdline(cmdline: &str) -> Option<String> {
 /// join, or — on macOS — when `ps` truncated the arg list before `pwd=`).
 /// See `docs/planning/zoom-auto-join-url.md` for the broader rollout plan
 /// (Phase 2 backfills the missing-`pwd` case via Zoom OAuth for hosts).
-fn extract_zoom_meeting_url() -> Option<String> {
+fn extract_zoom_meeting_url(state: &MeetingState) -> Option<String> {
+    // Windows: the WMI subscription is the only path that catches the URL
+    // when Zoom was already running in the tray (the launcher Zoom.exe dies
+    // within ~hundreds of ms, far before this 5s poll fires). Try the cache
+    // first; if it has nothing fresh, fall through to the live-process
+    // cmdline scan below, which still works when Zoom was freshly launched
+    // by the protocol handler and is the meeting process itself.
+    #[cfg(target_os = "windows")]
+    if let Some(url) = state.url_cache.take_fresh() {
+        log::debug!("Using Zoom URL captured by WMI subscription");
+        return Some(url);
+    }
+    // Suppress unused-parameter warnings on the platforms that don't read
+    // the cache. Cheap and keeps the call sites uniform.
+    #[cfg(not(target_os = "windows"))]
+    let _ = state;
+
     #[cfg(target_os = "linux")]
     {
         // Find zoom PID

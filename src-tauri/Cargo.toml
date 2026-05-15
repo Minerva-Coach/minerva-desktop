@@ -50,6 +50,11 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
 ] }
+# WMI event subscription on Win32_Process creation. Used solely to snapshot
+# the launcher Zoom.exe's command line before it dies (a few hundred ms),
+# which is the only source of the zoommtg:// URL when Zoom is already
+# running in the tray when the user clicks an invite link.
+wmi = "0.14"
 
 [profile.release]
 strip = true

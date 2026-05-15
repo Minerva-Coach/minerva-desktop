@@ -15,6 +15,8 @@ mod presence;
 mod process_detector;
 #[cfg(not(target_os = "linux"))]
 mod tray;
+#[cfg(target_os = "windows")]
+mod zoom_url_cache;
 
 use std::sync::Arc;
 
@@ -89,6 +91,18 @@ pub fn run() {
 
             let state_clone = meeting_state.clone();
             presence::start_heartbeat_loop(handle.clone(), state_clone);
+
+            // Windows-only: subscribe to Zoom.exe process creation so we can
+            // snapshot the launcher's cmdline (with the zoommtg:// URL) in
+            // the brief window before it IPCs to the tray Zoom and exits.
+            // Without this, users who clicked an invite link while Zoom was
+            // already running in the tray fall to the paste-link UX, since
+            // no surviving Zoom.exe carries `confno=` on its cmdline by the
+            // time the 5s detector loop polls. Best-effort: if WMI is
+            // unavailable the cache stays empty and we degrade to the
+            // existing cmdline-scan path. See zoom_url_cache.rs.
+            #[cfg(target_os = "windows")]
+            zoom_url_cache::start(meeting_state.url_cache.clone());
 
             // SocketIO now runs in the panel WebView (use-socket.ts) using the
             // system network stack (WKWebView/WebView2/webkit2gtk's TLS), which
