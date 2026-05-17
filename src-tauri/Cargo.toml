@@ -1,6 +1,6 @@
 [package]
 name = "minerva-desktop"
-version = "0.1.15"
+version = "0.1.16"
 description = "Minerva Coach Desktop Overlay"
 authors = ["Minerva Research Inc"]
 edition = "2021"
@@ -24,7 +24,17 @@ tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = "0.33"
-reqwest = { version = "0.12", features = ["json"] }
+# rustls-tls-native-roots: pure-Rust TLS that reads system trust roots (Keychain
+# on macOS, Schannel store on Windows, /etc/ssl on Linux). Replaces the default
+# native-tls path because on macOS that routes through SecureTransport, which
+# Apple deprecated in 10.15 and has bit-rotted to the point that TLS 1.3
+# handshakes against Cloudflare-fronted hosts (incl. minervacoach.com) fail
+# with "bad protocol version" on Sequoia and Tahoe. Apple's own bundled curl
+# on Sequoia is MultiSSL and prefers LibreSSL over SecureTransport for the
+# same reason. Verified: curl + Safari succeed against minervacoach.com from
+# a fresh Sequoia VM where our native-tls reqwest fails identically to a
+# Tahoe end user.
+reqwest = { version = "0.12", default-features = false, features = ["json", "http2", "charset", "rustls-tls-native-roots"] }
 tokio = { version = "1", features = ["full"] }
 tiny_http = "0.12"
 url = "2"
