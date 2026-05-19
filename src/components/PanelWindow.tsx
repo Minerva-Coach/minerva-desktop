@@ -21,6 +21,7 @@ import { MacosPermissionGate } from "./panel/MacosPermissionGate";
 import { WelcomeComplete } from "./panel/WelcomeComplete";
 import { ConnectionIssueModal } from "./panel/ConnectionIssueModal";
 import { apiFetch } from "../lib/api";
+import { findBehavior } from "../constants/behaviors";
 
 export function PanelWindow() {
   // macOS Screen Recording permission gate — granted on non-mac builds.
@@ -259,6 +260,23 @@ export function PanelWindow() {
     }
     prevActiveMeetings.current = activeMeetings;
   }, [activeMeetings]);
+
+  // Push behavior counts into the macOS tray title (and Windows tooltip) so
+  // the user can glance at the meeting state without opening the panel.
+  // Driven by chartData, which already gates on hasBotInMeeting — when no bot
+  // is coaching, chartData is null and the tray clears (#249).
+  useEffect(() => {
+    const title = chartData?.data.behaviors
+      .map((b) => {
+        const meta = findBehavior(b.name);
+        const label = meta?.label ?? b.name.toUpperCase();
+        return `${label}:${b.count}`;
+      })
+      .join(" ") ?? "";
+    invoke("update_tray_title", { title }).catch((err) => {
+      console.warn("update_tray_title failed:", err);
+    });
+  }, [chartData]);
 
   const handleSignOut = async () => {
     await logout();

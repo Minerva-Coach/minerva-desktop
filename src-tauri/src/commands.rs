@@ -557,3 +557,25 @@ pub fn macos_open_screen_recording_settings() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Update the system tray's title text (macOS) and tooltip (Windows).
+///
+/// `title` is rendered as text next to the tray icon on macOS — this is what
+/// gives the "behavior counts at a glance" feel without opening the panel.
+/// On Windows the same text is set as the tooltip (hover-only) since the
+/// taskbar tray doesn't render text labels. On Linux the call is a best-
+/// effort no-op (tray plugin not compiled there anyway).
+///
+/// Pass an empty string to clear back to the plain icon/default tooltip
+/// between meetings.
+#[tauri::command]
+pub fn update_tray_title(app: AppHandle, title: String) -> Result<(), String> {
+    let tray = app
+        .tray_by_id("main")
+        .ok_or_else(|| "tray icon not initialized".to_string())?;
+    let value = if title.is_empty() { None } else { Some(title.as_str()) };
+    tray.set_title(value).map_err(|e| e.to_string())?;
+    let tooltip = if title.is_empty() { Some("Minerva Coach") } else { Some(title.as_str()) };
+    tray.set_tooltip(tooltip).map_err(|e| e.to_string())?;
+    Ok(())
+}

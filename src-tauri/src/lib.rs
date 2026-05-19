@@ -79,6 +79,7 @@ pub fn run() {
             commands::macos_screen_recording_status,
             commands::macos_request_screen_recording,
             commands::macos_open_screen_recording_settings,
+            commands::update_tray_title,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
