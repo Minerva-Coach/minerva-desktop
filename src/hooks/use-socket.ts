@@ -82,6 +82,24 @@ export function useSocket(): UseSocketReturn {
     };
   }, [isPanel]);
 
+  // Clear transient per-meeting state at meeting boundaries so the overlay
+  // and gauges don't show the previous meeting's behavior counts when a new
+  // meeting starts before the first companion_data_update arrives (#214).
+  // Runs in every window — panel owns its own state, non-panel windows
+  // mirror the broadcast — so both need the reset.
+  useEffect(() => {
+    const unlistenStart = listen("meeting-started", () => {
+      setLastChartData(null);
+    });
+    const unlistenStop = listen("meeting-stopped", () => {
+      setLastChartData(null);
+    });
+    return () => {
+      unlistenStart.then((fn) => fn());
+      unlistenStop.then((fn) => fn());
+    };
+  }, []);
+
   // Non-panel windows: subscribe to the broadcast Tauri events.
   useEffect(() => {
     if (isPanel) return;
