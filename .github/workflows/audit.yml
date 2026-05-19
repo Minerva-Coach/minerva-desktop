@@ -22,6 +22,12 @@ on:
     - cron: "0 14 * * 1"  # Mondays at 14:00 UTC (07:00 PT)
   workflow_dispatch:
 
+# Run JavaScript actions on the Node 24 shim so we're not affected by the
+# Node 20 → 24 cutover GitHub is forcing on 2026-06-02. SHA-pinned actions
+# that haven't been re-pinned to a Node-24 build are still fine.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   cargo-audit:
     name: cargo audit (src-tauri)

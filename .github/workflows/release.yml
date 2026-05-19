@@ -54,6 +54,10 @@ on:
 env:
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  # Run JavaScript actions on the Node 24 shim so we're not affected by the
+  # Node 20 → 24 cutover GitHub is forcing on 2026-06-02. SHA-pinned actions
+  # that haven't been re-pinned to a Node-24 build are still fine.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   verify-version:
