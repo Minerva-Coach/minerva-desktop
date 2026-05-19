@@ -579,3 +579,22 @@ pub fn update_tray_title(app: AppHandle, title: String) -> Result<(), String> {
     tray.set_tooltip(tooltip).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// Apply a font-size zoom factor to every webview window.
+///
+/// Tauri v2's `WebviewWindow::set_zoom` uniformly scales the entire webview —
+/// text, padding, icons — which is the only sensible way to scale this app's
+/// UI given it uses 100+ absolute `text-[Npx]` Tailwind declarations that a
+/// CSS-variable approach can't reach. Applied to all windows in one call so
+/// the panel, overlay, and icon-key stay visually in sync.
+///
+/// Factor is clamped to [0.5, 2.0]; the JS hook only sends values in the
+/// 0.88..1.18 range today.
+#[tauri::command]
+pub fn set_font_scale(app: AppHandle, factor: f64) -> Result<(), String> {
+    let factor = factor.clamp(0.5, 2.0);
+    for (_label, window) in app.webview_windows() {
+        window.set_zoom(factor).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

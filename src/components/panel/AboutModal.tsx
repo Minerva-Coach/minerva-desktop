@@ -7,6 +7,7 @@ import {
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
 import { useUpdaterContext } from "../../contexts/updater-context";
+import { useFontScale, type FontScale } from "../../hooks/use-font-scale";
 
 const DASHBOARD_PROFILE_URL = "https://minervacoach.com/dashboard/profile";
 const SUPPORT_EMAIL = "matt@minervacoach.com";
@@ -29,6 +30,20 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
     const saved = localStorage.getItem(OVERLAY_VISIBLE_KEY);
     return saved === null ? true : saved === "true";
   });
+  const { scale: fontScale, saveScale: saveFontScale } = useFontScale();
+  const [fontSaving, setFontSaving] = useState(false);
+
+  const handleFontScale = async (next: FontScale) => {
+    if (next === fontScale || fontSaving) return;
+    setFontSaving(true);
+    try {
+      await saveFontScale(next);
+    } catch (err) {
+      console.warn("font scale save failed:", err);
+    } finally {
+      setFontSaving(false);
+    }
+  };
 
   useEffect(() => {
     invoke<string>("get_app_version")
@@ -190,6 +205,32 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
               }`}
             />
           </button>
+        </div>
+
+        <div className="flex items-center justify-between py-1">
+          <span className="text-[11px] text-gray-300">Font size</span>
+          <div className="flex gap-1" role="radiogroup" aria-label="Font size">
+            {(["small", "medium", "large"] as const).map((opt) => {
+              const selected = fontScale === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => handleFontScale(opt)}
+                  disabled={fontSaving}
+                  role="radio"
+                  aria-checked={selected}
+                  className={`px-2 py-0.5 rounded text-[10px] transition-colors disabled:opacity-50 ${
+                    selected
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                  }`}
+                >
+                  {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <button
