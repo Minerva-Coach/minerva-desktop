@@ -3,6 +3,9 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { PanelWindow } from "./components/PanelWindow";
 import { OverlayWindow } from "./components/OverlayWindow";
 import { IconKeyWindow } from "./components/IconKeyWindow";
+import { FocusGoalsWindow } from "./components/FocusGoalsWindow";
+import { AgendaWindow } from "./components/AgendaWindow";
+import { CoachingWindow } from "./components/CoachingWindow";
 import { UpdaterProvider } from "./contexts/updater-context";
 import { applyCachedFontScale } from "./hooks/use-font-scale";
 
@@ -35,6 +38,18 @@ export default function App() {
 
   if (windowLabel === "icon-key") {
     return <IconKeyWindow />;
+  }
+
+  if (windowLabel === "focus-goals") {
+    return <FocusGoalsWindow />;
+  }
+
+  if (windowLabel === "agenda") {
+    return <AgendaWindow />;
+  }
+
+  if (windowLabel === "coaching") {
+    return <CoachingWindow />;
   }
 
   return null;

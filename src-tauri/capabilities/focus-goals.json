@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "focus-goals",
+  "description": "Focus Goals companion window. Read-only mirror of the user's active focus goals; full editing happens on the web dashboard.",
+  "windows": ["focus-goals"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "shell:allow-open"
+  ]
+}

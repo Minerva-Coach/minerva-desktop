@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "coaching",
+  "description": "Coaching Advice companion window. Opt-in only via the About modal; surfaces recent dashboard advice for review.",
+  "windows": ["coaching"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "shell:allow-open"
+  ]
+}

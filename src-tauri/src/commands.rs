@@ -263,6 +263,68 @@ pub async fn open_icon_key(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Open (or focus) the Focus Goals companion window. Created on-demand
+/// because gating means most users won't open it for their first few
+/// sessions. Follows the same on-demand pattern as `open_icon_key`.
+#[tauri::command]
+pub async fn open_focus_goals(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("focus-goals") {
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "focus-goals", WebviewUrl::App("index.html".into()))
+        .title("Focus Goals")
+        .inner_size(380.0, 520.0)
+        .min_inner_size(300.0, 320.0)
+        .resizable(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open (or focus) the Agenda companion window.
+#[tauri::command]
+pub async fn open_agenda(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("agenda") {
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "agenda", WebviewUrl::App("index.html".into()))
+        .title("Agenda")
+        .inner_size(420.0, 560.0)
+        .min_inner_size(320.0, 360.0)
+        .resizable(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open (or focus) the Coaching Advice companion window.
+#[tauri::command]
+pub async fn open_coaching(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("coaching") {
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "coaching", WebviewUrl::App("index.html".into()))
+        .title("Coaching Advice")
+        .inner_size(380.0, 480.0)
+        .min_inner_size(300.0, 320.0)
+        .resizable(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Hide the panel and overlay windows.
 #[tauri::command]
 pub async fn hide_windows(app: AppHandle) -> Result<(), String> {
