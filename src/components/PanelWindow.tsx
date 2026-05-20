@@ -14,6 +14,8 @@ import { AccountStatus } from "./panel/AccountStatus";
 import { Gauges } from "./panel/Gauges";
 import { DevMode } from "./panel/DevMode";
 import { AboutModal } from "./panel/AboutModal";
+import { CompanionIntroBanner } from "./panel/CompanionIntroBanner";
+import { useFeatureState } from "../hooks/use-feature-state";
 import { PostMeetingModal } from "./panel/PostMeetingModal";
 import { PasteLinkModal } from "./panel/PasteLinkModal";
 import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
@@ -59,6 +61,11 @@ export function PanelWindow() {
   const { acknowledged: welcomeAcknowledged, acknowledge: acknowledgeWelcome } =
     useWelcomeAcknowledged();
   const { inMeeting, meetingUrl: detectedUrl } = useMeetingStatus();
+  const {
+    state: featureState,
+    markIntroSeen: markFeatureIntroSeen,
+    setEnabled: setFeatureEnabled,
+  } = useFeatureState();
 
   // Two-tier backend fallback when the local cmdline / WMI capture didn't
   // produce a complete join URL. Both paths are host-only — Zoom 404s for
@@ -565,10 +572,20 @@ export function PanelWindow() {
         </div>
       )}
 
+      {/* First-reveal intro for newly-ready companion features (focus
+          goals, agenda). Quiet once dismissed — persistent access lives
+          in the About modal. */}
+      <CompanionIntroBanner
+        state={featureState}
+        markIntroSeen={markFeatureIntroSeen}
+      />
+
       {showAbout && (
         <AboutModal
           onClose={() => setShowAbout(false)}
           onSignOut={handleSignOut}
+          featureState={featureState}
+          setFeatureEnabled={setFeatureEnabled}
         />
       )}
 
