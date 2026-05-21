@@ -219,10 +219,10 @@ export function PostMeetingModal({
         {actionItems.length > 0 && (
           <section className="pt-2 border-t border-gray-800">
             <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
-              Key Action Items ({actionItems.length})
+              Key Action Items
             </h3>
             <ul className="space-y-1 text-[11px] text-gray-200">
-              {actionItems.map((item, i) => (
+              {actionItems.slice(0, 2).map((item, i) => (
                 <li key={i} className="flex gap-1.5">
                   <span className="text-blue-400">☐</span>
                   <span className="flex-1">
