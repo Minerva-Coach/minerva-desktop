@@ -7,6 +7,7 @@ import { useSocket } from "../hooks/use-socket";
 import { useDevChartData } from "../hooks/use-dev-events";
 import { useConnectedAccounts } from "../hooks/use-connected-accounts";
 import { useMeetingStatus } from "../hooks/use-meeting-status";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useWelcomeAcknowledged } from "../hooks/use-welcome-acknowledged";
 import { usePresenceError } from "../hooks/use-presence";
 import { useUpdaterContext } from "../contexts/updater-context";
@@ -60,24 +61,32 @@ export function PanelWindow() {
   const presenceError = usePresenceError();
   const { acknowledged: welcomeAcknowledged, acknowledge: acknowledgeWelcome } =
     useWelcomeAcknowledged();
-  const { inMeeting, meetingUrl: detectedUrl } = useMeetingStatus();
+  const {
+    inMeeting,
+    meetingUrl: detectedUrl,
+    meetingPlatform,
+  } = useMeetingStatus();
   const {
     state: featureState,
     markIntroSeen: markFeatureIntroSeen,
     setEnabled: setFeatureEnabled,
   } = useFeatureState();
 
-  // Two-tier backend fallback when the local cmdline / WMI capture didn't
-  // produce a complete join URL. Both paths are host-only — Zoom 404s for
-  // guests, which cleanly degrades to the paste-link modal.
+  // Backend fallback when local capture didn't produce a complete join URL.
+  // Per platform:
   //
-  //   confno but no pwd  →  /api/zoom/meeting/<id>/join-url  (Phase 2)
-  //   no URL at all      →  /api/zoom/meetings/live          (Phase 4)
+  //   Zoom: confno but no pwd  →  /api/zoom/meeting/<id>/join-url
+  //         no URL at all       →  /api/zoom/meetings/live
+  //         Both host-only; Zoom 404s for guests so the paste-link modal
+  //         remains the fallback.
   //
-  // Phase 4 covers the host who joins from Zoom's Upcoming-Meetings tab —
-  // no `zoommtg://` URL ever hits a process cmdline, so the Rust extractor
-  // returns None and the WMI subscription sees no launcher process. See
-  // docs/planning/zoom-auto-join-url.md.
+  //   Teams: always no local URL (joins are HTTPS, not a protocol handler
+  //          we can scrape from cmdline) → /api/teams/meetings/live, which
+  //          uses the user's Graph calendar to find the live meeting.
+  //          Works for both host and guest because Graph returns any event
+  //          on the user's calendar.
+  //
+  // See docs/planning/zoom-auto-join-url.md for the Zoom side.
   const [augmentedUrl, setAugmentedUrl] = useState<string | null>(null);
   const meetingUrl = augmentedUrl ?? detectedUrl;
 
@@ -102,7 +111,10 @@ export function PanelWindow() {
       }
     };
 
-    if (detectedUrl) {
+    if (meetingPlatform === "teams") {
+      // Teams never produces a local URL, so always hit the backend.
+      if (inMeeting) apply(`/api/teams/meetings/live`);
+    } else if (detectedUrl) {
       const m = detectedUrl.match(/zoom\.us\/j\/(\d+)/);
       if (!m) return;
       apply(`/api/zoom/meeting/${m[1]}/join-url`);
@@ -113,7 +125,7 @@ export function PanelWindow() {
     return () => {
       cancelled = true;
     };
-  }, [detectedUrl, inMeeting]);
+  }, [detectedUrl, inMeeting, meetingPlatform]);
 
   // Re-fetch accounts when bot becomes active (verification creates new identities)
   useEffect(() => {
@@ -195,6 +207,12 @@ export function PanelWindow() {
   const [postMeetingMock, setPostMeetingMock] = useState<
     React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
   >(null);
+
+  // Session-only dismiss for the "detected platform isn't connected"
+  // banner. Resets each app launch — if Teams still isn't linked next
+  // time the user starts a Teams meeting, the banner reappears. Naggy
+  // enough to be discoverable, polite enough to ignore mid-call.
+  const [connectBannerDismissed, setConnectBannerDismissed] = useState(false);
 
   // Banner shown when the user re-launches the app while it's already
   // running. Single-instance plugin in Rust intercepts the second launch
@@ -284,6 +302,52 @@ export function PanelWindow() {
       console.warn("update_tray_title failed:", err);
     });
   }, [chartData]);
+
+  // "Detected platform isn't connected" banner: shown when the meeting we
+  // just detected is on a platform the user hasn't OAuth-linked. The
+  // re-trigger UX from issue: a Zoom-only user joins a Teams call, sees the
+  // banner, one-click connects Teams, and the next meeting works fully.
+  const needsConnectBanner =
+    inMeeting &&
+    !connectBannerDismissed &&
+    meetingPlatform !== null &&
+    accounts[meetingPlatform] !== undefined &&
+    !accounts[meetingPlatform].connected;
+  const [connectInFlight, setConnectInFlight] = useState(false);
+
+  // Poll connected-accounts every 3s while the user is mid-OAuth so the
+  // banner self-dismisses when they finish in the browser. Mirrors
+  // ConnectPlatformGate's polling behavior; here it's gated so we don't
+  // poll forever if the user never finishes.
+  useEffect(() => {
+    if (!connectInFlight) return;
+    const id = setInterval(refreshAccounts, 3000);
+    // Stop polling after 5 min so a forgotten browser tab doesn't keep
+    // hitting the backend until the app is restarted.
+    const timeout = setTimeout(() => setConnectInFlight(false), 5 * 60 * 1000);
+    return () => {
+      clearInterval(id);
+      clearTimeout(timeout);
+    };
+  }, [connectInFlight, refreshAccounts]);
+
+  // If the platform connects (banner condition becomes false), stop polling.
+  useEffect(() => {
+    if (!needsConnectBanner && connectInFlight) setConnectInFlight(false);
+  }, [needsConnectBanner, connectInFlight]);
+
+  const handleConnectDetectedPlatform = async () => {
+    if (!meetingPlatform) return;
+    const connectUrl = accounts[meetingPlatform]?.connect_url;
+    if (!connectUrl) return;
+    setConnectInFlight(true);
+    if (connectUrl.startsWith("/")) {
+      const apiUrl = await invoke<string>("get_api_url");
+      await openExternal(`${apiUrl}${connectUrl}`);
+    } else {
+      await openExternal(connectUrl);
+    }
+  };
 
   const handleSignOut = async () => {
     await logout();
@@ -730,6 +794,37 @@ export function PanelWindow() {
                   className="text-[10px] text-amber-300 hover:text-amber-100 underline shrink-0 self-start"
                 >
                   Details
+                </button>
+              </div>
+            )}
+            {needsConnectBanner && meetingPlatform && (
+              <div className="py-2 px-2 rounded bg-blue-900/30 border border-blue-800/40 flex items-start justify-between gap-2">
+                <div className="flex-1 space-y-1.5">
+                  <p className="text-[10px] text-blue-200 leading-relaxed">
+                    {meetingPlatform === "teams"
+                      ? "You're in a Microsoft Teams meeting but Teams isn't connected to Minerva yet."
+                      : "You're in a Zoom meeting but Zoom isn't connected to Minerva yet."}
+                  </p>
+                  <button
+                    onClick={handleConnectDetectedPlatform}
+                    disabled={
+                      !accounts[meetingPlatform].connect_url || connectInFlight
+                    }
+                    className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-[10px] font-medium transition-colors"
+                  >
+                    {connectInFlight
+                      ? "Waiting for browser…"
+                      : meetingPlatform === "teams"
+                        ? "Connect Microsoft Teams"
+                        : "Connect Zoom"}
+                  </button>
+                </div>
+                <button
+                  onClick={() => setConnectBannerDismissed(true)}
+                  className="text-blue-300 hover:text-white shrink-0 self-start text-xs leading-none"
+                  title="Dismiss"
+                >
+                  ×
                 </button>
               </div>
             )}
