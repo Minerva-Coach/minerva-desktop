@@ -52,7 +52,8 @@ function getEmoji(message: CoachingMessage): string | null {
  *
  * - Spawns at the bottom of the overlay strip
  * - Floats upward over ~3.5 seconds
- * - Fades in quickly, then fades out near the top
+ * - Fades out below the BehaviorStations row so praise floaters (which
+ *   share emojis with the station icons) don't merge into the static row
  * - No label — the Icon Key window documents what each emoji means.
  */
 export function FloatingIcon({ message }: FloatingIconProps) {
