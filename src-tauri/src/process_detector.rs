@@ -1,11 +1,19 @@
-//! Zoom process and active meeting detection.
+//! Zoom and Microsoft Teams process / active-meeting detection.
 //!
-//! Polls for Zoom process every 5 seconds. Distinguishes between Zoom running
-//! idle (system tray) vs an active meeting by checking window titles on Linux.
+//! Polls every 5 seconds. Distinguishes "client running idle in tray" from
+//! "in an active meeting" by enumerating top-level windows owned by the
+//! client process and matching titles against per-platform heuristics.
 //!
 //! Emits Tauri events:
-//! - `meeting-started` when an active Zoom meeting is detected
-//! - `meeting-stopped` when the meeting ends (or Zoom closes)
+//! - `meeting-started` (payload: `meeting_platform: "zoom" | "teams"`,
+//!    optional `meeting_url`) when an active meeting is detected
+//! - `meeting-stopped` when the meeting ends (or the client closes)
+//!
+//! Zoom and Teams are checked in that order; if both somehow report a
+//! live meeting at the same instant, Zoom wins. The desktop panel only
+//! ever surfaces one meeting at a time, so disambiguating across two
+//! simultaneous meetings hosted by the same user isn't worth the
+//! complexity.
 
 #[cfg(target_os = "linux")]
 use std::process::Command;
@@ -32,6 +40,18 @@ const ZOOM_PROCESS_NAMES: &[&str] = &[
     "zoom.us",    // macOS
     "Zoom.exe",   // Windows
     "ZoomWebviewHost", // Zoom sub-process (Linux)
+];
+
+/// Microsoft Teams process names by platform. Covers classic Teams ("Teams.exe"
+/// on Windows) and the new WebView2-based client ("ms-teams.exe"). Microsoft
+/// discontinued the Linux desktop client, so no Linux entry — Linux users join
+/// Teams meetings via the browser, which window enumeration can't reliably
+/// pin to a Teams meeting vs an arbitrary tab.
+const TEAMS_PROCESS_NAMES: &[&str] = &[
+    "ms-teams.exe",        // Windows (new Teams, v2)
+    "Teams.exe",           // Windows (classic Teams, v1)
+    "Microsoft Teams",     // macOS
+    "MSTeams",             // macOS (new Teams)
 ];
 
 /// Window titles (Linux only) that positively indicate an active Zoom meeting.
@@ -89,7 +109,14 @@ impl MeetingState {
 /// Payload emitted with meeting-started event.
 #[derive(Clone, serde::Serialize)]
 pub struct MeetingStartedPayload {
-    /// Zoom meeting URL (e.g., "https://zoom.us/j/1234567890"), if extractable.
+    /// Which platform's meeting was detected. The frontend uses this to
+    /// pick the right backend live-meeting endpoint and to decide which
+    /// platform's "connect" banner (if any) to show.
+    pub meeting_platform: &'static str,
+    /// Meeting join URL (e.g., "https://zoom.us/j/1234567890" or
+    /// "https://teams.microsoft.com/l/meetup-join/..."), if locally
+    /// extractable. For Teams this is always None — the URL comes from
+    /// the backend's /api/teams/meetings/live endpoint.
     pub meeting_url: Option<String>,
 }
 
@@ -112,25 +139,52 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
                     .iter()
                     .any(|z| name == z.to_lowercase())
             });
+            let teams_running = sys.processes().values().any(|p| {
+                let name = p.name().to_string_lossy().to_lowercase();
+                TEAMS_PROCESS_NAMES
+                    .iter()
+                    .any(|t| name == t.to_lowercase())
+            });
 
-            let in_meeting = if zoom_running {
-                is_in_active_meeting()
+            // Zoom wins ties — see module docstring.
+            let detected: Option<&'static str> = if zoom_running && is_in_active_meeting() {
+                Some("zoom")
+            } else if teams_running && is_in_active_teams_meeting() {
+                Some("teams")
             } else {
-                false
+                None
             };
 
+            let in_meeting = detected.is_some();
             state.in_meeting.store(in_meeting, Ordering::Relaxed);
 
             // Emit events on state transitions. Window visibility is
             // managed by the frontend — no Rust show/hide calls, which
             // trigger a tao/GTK panic on Linux via glib channel dispatch.
             if in_meeting && !was_in_meeting {
-                let meeting_url = extract_zoom_meeting_url(&state);
+                let platform = detected.unwrap();
+                let meeting_url = if platform == "zoom" {
+                    extract_zoom_meeting_url(&state)
+                } else {
+                    // Teams join URLs aren't on the cmdline; the frontend
+                    // fetches them from /api/teams/meetings/live.
+                    None
+                };
                 // Don't log the URL — it identifies a specific meeting (P3-G).
-                log::debug!("Active Zoom meeting detected (url present: {})", meeting_url.is_some());
-                let _ = app.emit("meeting-started", MeetingStartedPayload { meeting_url });
+                log::debug!(
+                    "Active {} meeting detected (url present: {})",
+                    platform,
+                    meeting_url.is_some()
+                );
+                let _ = app.emit(
+                    "meeting-started",
+                    MeetingStartedPayload {
+                        meeting_platform: platform,
+                        meeting_url,
+                    },
+                );
             } else if !in_meeting && was_in_meeting {
-                log::debug!("Zoom meeting ended");
+                log::debug!("Meeting ended");
                 let _ = app.emit("meeting-stopped", ());
             }
 
@@ -437,6 +491,247 @@ fn is_meeting_title(title: &str) -> bool {
         return true;
     }
     false
+}
+
+/// Title-based heuristic for "this is an active Teams meeting window."
+///
+/// Teams window titles are messier than Zoom's. The plain "microsoft teams"
+/// title is the idle main window and MUST NOT count. Meetings show titles like
+/// "Meeting | Microsoft Teams", "Meeting in <channel> | Microsoft Teams",
+/// "<subject> | Microsoft Teams (meeting)", or for 1:1 calls "Call with <name>".
+/// Huddles get "Huddle | Microsoft Teams" in the new client.
+///
+/// To keep false positives low we require either the literal word "meeting" /
+/// "huddle" / "lobby" alongside "teams", or a "call with " prefix (1:1 calls).
+/// Pure subject-line titles like "Weekly Standup | Microsoft Teams" with no
+/// meeting indicator will be missed — accepted trade-off because the alternative
+/// (treating any Teams-owned window as a meeting) would flash the panel every
+/// time the user opens Teams chat.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn is_teams_meeting_title(title: &str) -> bool {
+    if title == "microsoft teams" || title == "microsoft teams (work or school)" {
+        return false;
+    }
+    if title.starts_with("call with ") {
+        return true;
+    }
+    let mentions_teams = title.contains("teams");
+    let meeting_indicator =
+        title.contains("meeting") || title.contains("huddle") || title.contains("lobby");
+    mentions_teams && meeting_indicator
+}
+
+/// Check if Teams has an active meeting window. Windows + macOS only; Microsoft
+/// discontinued the Linux client, so the Linux build returns false unconditionally.
+fn is_in_active_teams_meeting() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        is_in_active_teams_meeting_windows()
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        is_in_active_teams_meeting_macos()
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        false
+    }
+}
+
+/// Windows Teams meeting detection — same EnumWindows pattern as
+/// `is_in_active_meeting_windows`, but filtered to Teams process names and
+/// scored against `is_teams_meeting_title`.
+#[cfg(target_os = "windows")]
+fn is_in_active_teams_meeting_windows() -> bool {
+    use std::collections::HashSet;
+    use windows::Win32::Foundation::{BOOL, FALSE, HWND, LPARAM, TRUE};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+    };
+
+    struct EnumState {
+        teams_pids: HashSet<u32>,
+        found_meeting: bool,
+    }
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let state = &mut *(lparam.0 as *mut EnumState);
+
+        if !IsWindowVisible(hwnd).as_bool() {
+            return TRUE;
+        }
+
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid as *mut u32));
+        if !state.teams_pids.contains(&pid) {
+            return TRUE;
+        }
+
+        let mut buf = [0u16; 256];
+        let len = GetWindowTextW(hwnd, &mut buf);
+        if len <= 0 {
+            return TRUE;
+        }
+        let title = String::from_utf16_lossy(&buf[..len as usize])
+            .trim()
+            .to_lowercase();
+
+        if is_teams_meeting_title(&title) {
+            log::debug!("Windows Teams meeting detected via title");
+            state.found_meeting = true;
+            return FALSE;
+        }
+
+        TRUE
+    }
+
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing(),
+    );
+    let teams_pids: HashSet<u32> = sys
+        .processes()
+        .values()
+        .filter(|p| {
+            let n = p.name().to_string_lossy();
+            n.eq_ignore_ascii_case("ms-teams.exe") || n.eq_ignore_ascii_case("Teams.exe")
+        })
+        .map(|p| p.pid().as_u32())
+        .collect();
+
+    if teams_pids.is_empty() {
+        return false;
+    }
+
+    let mut state = EnumState {
+        teams_pids,
+        found_meeting: false,
+    };
+
+    unsafe {
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut state as *mut _ as isize));
+    }
+
+    state.found_meeting
+}
+
+/// macOS Teams meeting detection — same CGWindowList pattern as
+/// `is_in_active_meeting_macos`, filtered to Teams process names and scored
+/// against `is_teams_meeting_title`. Requires Screen Recording permission for
+/// the same reason Zoom detection does (kCGWindowName is omitted otherwise).
+#[cfg(target_os = "macos")]
+fn is_in_active_teams_meeting_macos() -> bool {
+    use core_foundation::array::CFArrayRef;
+    use core_foundation::base::TCFType;
+    use core_foundation::dictionary::CFDictionaryRef;
+    use core_foundation::number::{CFNumber, CFNumberRef};
+    use core_foundation::string::{CFString, CFStringRef};
+    use core_graphics::window::{
+        kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly, kCGWindowName,
+        kCGWindowOwnerPID, CGWindowListCopyWindowInfo,
+    };
+    use std::collections::HashSet;
+    use std::ffi::c_void;
+
+    extern "C" {
+        fn CFArrayGetCount(arr: CFArrayRef) -> isize;
+        fn CFArrayGetValueAtIndex(arr: CFArrayRef, idx: isize) -> *const c_void;
+        fn CFDictionaryGetValueIfPresent(
+            dict: CFDictionaryRef,
+            key: *const c_void,
+            value: *mut *const c_void,
+        ) -> u8;
+        fn CFRelease(cf: *const c_void);
+        fn CFGetTypeID(cf: *const c_void) -> usize;
+        fn CFNumberGetTypeID() -> usize;
+        fn CFStringGetTypeID() -> usize;
+    }
+
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing(),
+    );
+    let teams_pids: HashSet<i64> = sys
+        .processes()
+        .values()
+        .filter(|p| {
+            let n = p.name().to_string_lossy();
+            n == "Microsoft Teams" || n == "MSTeams"
+        })
+        .map(|p| p.pid().as_u32() as i64)
+        .collect();
+    if teams_pids.is_empty() {
+        return false;
+    }
+
+    let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+    let arr_ref: CFArrayRef = unsafe { CGWindowListCopyWindowInfo(options, 0) };
+    if arr_ref.is_null() {
+        return false;
+    }
+
+    let mut found_meeting = false;
+    let count = unsafe { CFArrayGetCount(arr_ref) };
+    for i in 0..count {
+        let dict_ptr = unsafe { CFArrayGetValueAtIndex(arr_ref, i) };
+        if dict_ptr.is_null() {
+            continue;
+        }
+        let dict_ref = dict_ptr as CFDictionaryRef;
+
+        let mut value: *const c_void = std::ptr::null();
+        let got = unsafe {
+            CFDictionaryGetValueIfPresent(
+                dict_ref,
+                kCGWindowOwnerPID as *const c_void,
+                &mut value,
+            )
+        };
+        if got == 0 || value.is_null() {
+            continue;
+        }
+        if unsafe { CFGetTypeID(value) } != unsafe { CFNumberGetTypeID() } {
+            continue;
+        }
+        let pid = match unsafe { CFNumber::wrap_under_get_rule(value as CFNumberRef) }.to_i64() {
+            Some(p) => p,
+            None => continue,
+        };
+        if !teams_pids.contains(&pid) {
+            continue;
+        }
+
+        let mut value: *const c_void = std::ptr::null();
+        let got = unsafe {
+            CFDictionaryGetValueIfPresent(dict_ref, kCGWindowName as *const c_void, &mut value)
+        };
+        if got == 0 || value.is_null() {
+            continue;
+        }
+        if unsafe { CFGetTypeID(value) } != unsafe { CFStringGetTypeID() } {
+            continue;
+        }
+        let title = unsafe { CFString::wrap_under_get_rule(value as CFStringRef) }.to_string();
+        let lower = title.trim().to_lowercase();
+        if lower.is_empty() {
+            continue;
+        }
+
+        if is_teams_meeting_title(&lower) {
+            log::debug!("macOS Teams meeting detected via title");
+            found_meeting = true;
+            break;
+        }
+    }
+
+    unsafe { CFRelease(arr_ref as *const c_void) };
+    found_meeting
 }
 
 #[cfg(target_os = "linux")]
