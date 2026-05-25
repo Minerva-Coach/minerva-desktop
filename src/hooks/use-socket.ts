@@ -144,7 +144,6 @@ export function useSocket(): UseSocketReturn {
     }
 
     let cancelled = false;
-    let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
     const setup = async () => {
       const apiUrl = await invoke<string>("get_api_url");
@@ -218,12 +217,10 @@ export function useSocket(): UseSocketReturn {
         emit("socket-companion-data", payload);
       });
 
-      // refresh_meetings every 10s, matching the prior Rust loop. This
-      // is what triggers backend-side room re-joins when a meeting
-      // starts mid-session.
-      refreshTimer = setInterval(() => {
-        socket.emit("refresh_meetings", {});
-      }, 10_000);
+      // No periodic refresh_meetings poll. The backend subscribes each client
+      // to a single per-user room at connect (and again on reconnect), so
+      // coaching/companion events arrive regardless of when a meeting starts.
+      // See MinervaMVP ADR-009.
     };
 
     setup().catch((err) => {
@@ -234,7 +231,6 @@ export function useSocket(): UseSocketReturn {
 
     return () => {
       cancelled = true;
-      if (refreshTimer) clearInterval(refreshTimer);
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
