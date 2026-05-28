@@ -30,8 +30,8 @@ function dashboardUrl(): string {
   // parent CLAUDE.md — desktop expects https://127.0.0.1:8000 in dev,
   // https://minervacoach.com in prod). The shell allowlist in
   // tauri.conf.json already permits both hosts.
-  if (import.meta.env.DEV) return "https://127.0.0.1:8000/focus-goals";
-  return "https://minervacoach.com/focus-goals";
+  if (import.meta.env.DEV) return "https://127.0.0.1:8000/dashboard/focus-goals";
+  return "https://minervacoach.com/dashboard/focus-goals";
 }
 
 export function FocusGoalsWindow() {
