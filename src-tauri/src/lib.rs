@@ -72,6 +72,9 @@ pub fn run() {
             commands::start_overlay_reposition,
             commands::get_cursor_position,
             commands::open_icon_key,
+            commands::open_focus_goals,
+            commands::open_agenda,
+            commands::open_coaching,
             commands::is_welcome_acknowledged,
             commands::acknowledge_welcome,
             commands::should_auto_show_icon_key,
@@ -79,6 +82,8 @@ pub fn run() {
             commands::macos_screen_recording_status,
             commands::macos_request_screen_recording,
             commands::macos_open_screen_recording_settings,
+            commands::update_tray_title,
+            commands::set_font_scale,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

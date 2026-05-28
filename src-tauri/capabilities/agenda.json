@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "agenda",
+  "description": "Agenda companion window. Read-only mirror in v1; structured for future CRUD parity with the web companion.",
+  "windows": ["agenda"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "shell:allow-open"
+  ]
+}

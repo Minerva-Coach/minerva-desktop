@@ -82,6 +82,24 @@ export function useSocket(): UseSocketReturn {
     };
   }, [isPanel]);
 
+  // Clear transient per-meeting state at meeting boundaries so the overlay
+  // and gauges don't show the previous meeting's behavior counts when a new
+  // meeting starts before the first companion_data_update arrives (#214).
+  // Runs in every window — panel owns its own state, non-panel windows
+  // mirror the broadcast — so both need the reset.
+  useEffect(() => {
+    const unlistenStart = listen("meeting-started", () => {
+      setLastChartData(null);
+    });
+    const unlistenStop = listen("meeting-stopped", () => {
+      setLastChartData(null);
+    });
+    return () => {
+      unlistenStart.then((fn) => fn());
+      unlistenStop.then((fn) => fn());
+    };
+  }, []);
+
   // Non-panel windows: subscribe to the broadcast Tauri events.
   useEffect(() => {
     if (isPanel) return;
@@ -126,7 +144,6 @@ export function useSocket(): UseSocketReturn {
     }
 
     let cancelled = false;
-    let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
     const setup = async () => {
       const apiUrl = await invoke<string>("get_api_url");
@@ -200,12 +217,10 @@ export function useSocket(): UseSocketReturn {
         emit("socket-companion-data", payload);
       });
 
-      // refresh_meetings every 10s, matching the prior Rust loop. This
-      // is what triggers backend-side room re-joins when a meeting
-      // starts mid-session.
-      refreshTimer = setInterval(() => {
-        socket.emit("refresh_meetings", {});
-      }, 10_000);
+      // No periodic refresh_meetings poll. The backend subscribes each client
+      // to a single per-user room at connect (and again on reconnect), so
+      // coaching/companion events arrive regardless of when a meeting starts.
+      // See MinervaMVP ADR-009.
     };
 
     setup().catch((err) => {
@@ -216,7 +231,6 @@ export function useSocket(): UseSocketReturn {
 
     return () => {
       cancelled = true;
-      if (refreshTimer) clearInterval(refreshTimer);
       socketRef.current?.disconnect();
       socketRef.current = null;
     };

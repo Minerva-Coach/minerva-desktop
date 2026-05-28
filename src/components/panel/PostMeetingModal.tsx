@@ -178,27 +178,6 @@ export function PostMeetingModal({
           )}
         </section>
 
-        {actionItems.length > 0 && (
-          <section className="pt-2 border-t border-gray-800">
-            <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
-              Action Items ({actionItems.length})
-            </h3>
-            <ul className="space-y-1 text-[11px] text-gray-200">
-              {actionItems.map((item, i) => (
-                <li key={i} className="flex gap-1.5">
-                  <span className="text-blue-400">☐</span>
-                  <span className="flex-1">
-                    {item.description}
-                    {item.assignee && (
-                      <span className="text-gray-500"> — {item.assignee}</span>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
         {decisions.length > 0 && (
           <section className="pt-2 border-t border-gray-800">
             <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
@@ -215,6 +194,41 @@ export function PostMeetingModal({
                         {" "}
                         — {d.participants.join(", ")}
                       </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section className="pt-2 border-t border-gray-800">
+          <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
+            Suggested focus for next meeting
+          </h3>
+          <ul className="space-y-1 text-[11px] text-gray-300">
+            {SUGGESTED_FOCUS.map((s, i) => (
+              <li key={i} className="flex gap-1.5">
+                <span className="text-blue-400">•</span>
+                <span>{s}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {actionItems.length > 0 && (
+          <section className="pt-2 border-t border-gray-800">
+            <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
+              Key Action Items
+            </h3>
+            <ul className="space-y-1 text-[11px] text-gray-200">
+              {actionItems.slice(0, 2).map((item, i) => (
+                <li key={i} className="flex gap-1.5">
+                  <span className="text-blue-400">☐</span>
+                  <span className="flex-1">
+                    {item.description}
+                    {item.assignee && (
+                      <span className="text-gray-500"> — {item.assignee}</span>
                     )}
                   </span>
                 </li>
@@ -243,20 +257,6 @@ export function PostMeetingModal({
               <span>Great</span>
             </div>
           </div>
-        </section>
-
-        <section className="pt-2 border-t border-gray-800">
-          <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
-            Suggested focus for next meeting
-          </h3>
-          <ul className="space-y-1 text-[11px] text-gray-300">
-            {SUGGESTED_FOCUS.map((s, i) => (
-              <li key={i} className="flex gap-1.5">
-                <span className="text-blue-400">•</span>
-                <span>{s}</span>
-              </li>
-            ))}
-          </ul>
         </section>
 
         <p className="pt-2 text-[10px] text-gray-500 leading-relaxed border-t border-gray-800">

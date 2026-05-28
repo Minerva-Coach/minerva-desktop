@@ -263,6 +263,68 @@ pub async fn open_icon_key(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Open (or focus) the Focus Goals companion window. Created on-demand
+/// because gating means most users won't open it for their first few
+/// sessions. Follows the same on-demand pattern as `open_icon_key`.
+#[tauri::command]
+pub async fn open_focus_goals(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("focus-goals") {
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "focus-goals", WebviewUrl::App("index.html".into()))
+        .title("Focus Goals")
+        .inner_size(380.0, 520.0)
+        .min_inner_size(300.0, 320.0)
+        .resizable(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open (or focus) the Agenda companion window.
+#[tauri::command]
+pub async fn open_agenda(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("agenda") {
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "agenda", WebviewUrl::App("index.html".into()))
+        .title("Agenda")
+        .inner_size(420.0, 560.0)
+        .min_inner_size(320.0, 360.0)
+        .resizable(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open (or focus) the Coaching Advice companion window.
+#[tauri::command]
+pub async fn open_coaching(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("coaching") {
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "coaching", WebviewUrl::App("index.html".into()))
+        .title("Coaching Advice")
+        .inner_size(380.0, 480.0)
+        .min_inner_size(300.0, 320.0)
+        .resizable(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Hide the panel and overlay windows.
 #[tauri::command]
 pub async fn hide_windows(app: AppHandle) -> Result<(), String> {
@@ -554,6 +616,47 @@ pub fn macos_open_screen_recording_settings() -> Result<(), String> {
             .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
             .spawn()
             .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Update the system tray's title text (macOS) and tooltip (Windows).
+///
+/// `title` is rendered as text next to the tray icon on macOS — this is what
+/// gives the "behavior counts at a glance" feel without opening the panel.
+/// On Windows the same text is set as the tooltip (hover-only) since the
+/// taskbar tray doesn't render text labels. On Linux the call is a best-
+/// effort no-op (tray plugin not compiled there anyway).
+///
+/// Pass an empty string to clear back to the plain icon/default tooltip
+/// between meetings.
+#[tauri::command]
+pub fn update_tray_title(app: AppHandle, title: String) -> Result<(), String> {
+    let tray = app
+        .tray_by_id("main")
+        .ok_or_else(|| "tray icon not initialized".to_string())?;
+    let value = if title.is_empty() { None } else { Some(title.as_str()) };
+    tray.set_title(value).map_err(|e| e.to_string())?;
+    let tooltip = if title.is_empty() { Some("Minerva Coach") } else { Some(title.as_str()) };
+    tray.set_tooltip(tooltip).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Apply a font-size zoom factor to every webview window.
+///
+/// Tauri v2's `WebviewWindow::set_zoom` uniformly scales the entire webview —
+/// text, padding, icons — which is the only sensible way to scale this app's
+/// UI given it uses 100+ absolute `text-[Npx]` Tailwind declarations that a
+/// CSS-variable approach can't reach. Applied to all windows in one call so
+/// the panel, overlay, and icon-key stay visually in sync.
+///
+/// Factor is clamped to [0.5, 2.0]; the JS hook only sends values in the
+/// 0.88..1.18 range today.
+#[tauri::command]
+pub fn set_font_scale(app: AppHandle, factor: f64) -> Result<(), String> {
+    let factor = factor.clamp(0.5, 2.0);
+    for (_label, window) in app.webview_windows() {
+        window.set_zoom(factor).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

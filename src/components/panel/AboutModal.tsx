@@ -7,6 +7,12 @@ import {
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
 import { useUpdaterContext } from "../../contexts/updater-context";
+import { useFontScale, type FontScale } from "../../hooks/use-font-scale";
+import type {
+  FeatureName,
+  FeatureState,
+  FeatureSlice,
+} from "../../hooks/use-feature-state";
 
 const DASHBOARD_PROFILE_URL = "https://minervacoach.com/dashboard/profile";
 const SUPPORT_EMAIL = "matt@minervacoach.com";
@@ -16,11 +22,32 @@ const THIRD_PARTY_LICENSES_URL =
 interface AboutModalProps {
   onClose: () => void;
   onSignOut: () => void;
+  featureState: FeatureState | null;
+  setFeatureEnabled: (feature: FeatureName, enabled: boolean) => Promise<void>;
 }
+
+const FEATURE_LABEL: Record<FeatureName, string> = {
+  focusGoals: "Focus goals window",
+  agenda: "Agenda window",
+  coaching: "Coaching advice window",
+};
+
+const FEATURE_OPEN_COMMAND: Record<FeatureName, string> = {
+  focusGoals: "open_focus_goals",
+  agenda: "open_agenda",
+  coaching: "open_coaching",
+};
+
+const FEATURE_ORDER: FeatureName[] = ["focusGoals", "agenda", "coaching"];
 
 const OVERLAY_VISIBLE_KEY = "minerva.overlayVisible";
 
-export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
+export function AboutModal({
+  onClose,
+  onSignOut,
+  featureState,
+  setFeatureEnabled,
+}: AboutModalProps) {
   const { status, checkNow } = useUpdaterContext();
   const [version, setVersion] = useState<string>("");
   const [autostartOn, setAutostartOn] = useState<boolean | null>(null);
@@ -29,6 +56,20 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
     const saved = localStorage.getItem(OVERLAY_VISIBLE_KEY);
     return saved === null ? true : saved === "true";
   });
+  const { scale: fontScale, saveScale: saveFontScale } = useFontScale();
+  const [fontSaving, setFontSaving] = useState(false);
+
+  const handleFontScale = async (next: FontScale) => {
+    if (next === fontScale || fontSaving) return;
+    setFontSaving(true);
+    try {
+      await saveFontScale(next);
+    } catch (err) {
+      console.warn("font scale save failed:", err);
+    } finally {
+      setFontSaving(false);
+    }
+  };
 
   useEffect(() => {
     invoke<string>("get_app_version")
@@ -192,6 +233,32 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
           </button>
         </div>
 
+        <div className="flex items-center justify-between py-1">
+          <span className="text-[11px] text-gray-300">Font size</span>
+          <div className="flex gap-1" role="radiogroup" aria-label="Font size">
+            {(["small", "medium", "large"] as const).map((opt) => {
+              const selected = fontScale === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => handleFontScale(opt)}
+                  disabled={fontSaving}
+                  role="radio"
+                  aria-checked={selected}
+                  className={`px-2 py-0.5 rounded text-[10px] transition-colors disabled:opacity-50 ${
+                    selected
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                  }`}
+                >
+                  {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <button
           onClick={repositionOverlay}
           disabled={!overlayOn}
@@ -208,6 +275,20 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
         >
           Icon key
         </button>
+
+        <div className="pt-2 border-t border-gray-800 space-y-1.5">
+          <p className="text-[10px] uppercase tracking-wider text-gray-500">
+            Companion windows
+          </p>
+          {FEATURE_ORDER.map((name) => (
+            <FeatureRow
+              key={name}
+              name={name}
+              slice={featureState ? featureState[name] : null}
+              setEnabled={setFeatureEnabled}
+            />
+          ))}
+        </div>
 
         <div className="pt-2 border-t border-gray-800 space-y-1.5">
           <button
@@ -261,6 +342,81 @@ export function AboutModal({ onClose, onSignOut }: AboutModalProps) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface FeatureRowProps {
+  name: FeatureName;
+  slice: FeatureSlice | null;
+  setEnabled: (feature: FeatureName, enabled: boolean) => Promise<void>;
+}
+
+function FeatureRow({ name, slice, setEnabled }: FeatureRowProps) {
+  // While feature-state is loading, render a placeholder row so the
+  // section doesn't pop in/out as the fetch completes.
+  if (!slice) {
+    return (
+      <div className="flex items-center justify-between py-1 opacity-50">
+        <span className="text-[11px] text-gray-300">{FEATURE_LABEL[name]}</span>
+        <span className="text-[10px] text-gray-500">…</span>
+      </div>
+    );
+  }
+
+  const enabled = slice.status === "ready";
+  const canOpen = slice.status === "ready";
+
+  const handleToggle = () => {
+    setEnabled(name, !enabled).catch((err) =>
+      console.warn(`feature toggle (${name}) failed:`, err)
+    );
+  };
+
+  const handleOpen = async () => {
+    try {
+      await invoke(FEATURE_OPEN_COMMAND[name]);
+    } catch (err) {
+      console.warn(`open ${name} window failed:`, err);
+    }
+  };
+
+  return (
+    <div className="py-1 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-gray-300">{FEATURE_LABEL[name]}</span>
+        <button
+          type="button"
+          onClick={handleToggle}
+          className={`relative w-10 h-5 rounded-full transition-colors ${
+            enabled ? "bg-blue-600" : "bg-gray-700"
+          }`}
+          aria-pressed={enabled}
+          aria-label={`Toggle ${FEATURE_LABEL[name]}`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+              enabled ? "translate-x-5" : "translate-x-0"
+            }`}
+          />
+        </button>
+      </div>
+
+      {slice.status === "locked" && slice.unlockReason && (
+        <p className="text-[10px] text-gray-500 leading-snug">
+          {slice.unlockReason}
+        </p>
+      )}
+
+      {canOpen && (
+        <button
+          type="button"
+          onClick={handleOpen}
+          className="w-full px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-200 transition-colors"
+        >
+          Open window
+        </button>
+      )}
     </div>
   );
 }
