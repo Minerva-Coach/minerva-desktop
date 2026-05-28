@@ -6,7 +6,7 @@
 //!
 //! Emits Tauri events:
 //! - `meeting-started` (payload: `meeting_platform: "zoom" | "teams"`,
-//!    optional `meeting_url`) when an active meeting is detected
+//!   optional `meeting_url`) when an active meeting is detected
 //! - `meeting-stopped` when the meeting ends (or the client closes)
 //!
 //! Zoom and Teams are checked in that order; if both somehow report a
