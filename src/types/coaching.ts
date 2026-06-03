@@ -36,7 +36,10 @@ export interface CompanionDataUpdate {
     behaviors: Array<{
       name: string;
       count: number;
+      /** Remaining shortfall to the goal (0 once met); used for the bar shortfall segment. */
       target: number;
+      /** Absolute time-scaled goal — the fixed denominator to display (issue #292). */
+      scaled_target: number;
     }>;
     filler_words: {
       fraction: number;

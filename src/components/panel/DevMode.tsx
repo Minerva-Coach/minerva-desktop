@@ -119,8 +119,8 @@ function randomChartData(): CompanionDataUpdate {
     data: {
       talk_time: { me, others, silence },
       behaviors: [
-        { name: "Open-ended Questions", count: Math.floor(Math.random() * 8), target: 5 },
-        { name: "Empathy", count: Math.floor(Math.random() * 6), target: 4 },
+        { name: "Open-ended Questions", count: Math.floor(Math.random() * 8), target: 5, scaled_target: 5 },
+        { name: "Empathy", count: Math.floor(Math.random() * 6), target: 4, scaled_target: 4 },
       ],
       filler_words: {
         fraction: Math.random() * 0.08,
