@@ -28,10 +28,12 @@ export function BehaviorStations({ behaviors }: BehaviorStationsProps) {
         const data = byCode.get(meta.code);
         const count = data?.count ?? 0;
         const target = data?.target ?? 0;
-        // Backend sends target as the REMAINING delta, not the absolute goal.
-        // Full target = current count + remaining.
-        const fullTarget = count + target;
-        const metTarget = target === 0 && count > 0;
+        // scaled_target is the absolute, time-scaled goal and is independent of
+        // count, so it stays put (e.g. "5/2") instead of climbing to match the
+        // realized count (issue #292). Fall back to count + remaining for older
+        // backends that don't send it yet.
+        const fullTarget = data?.scaled_target ?? count + target;
+        const metTarget = count >= fullTarget && count > 0;
 
         return (
           <div
