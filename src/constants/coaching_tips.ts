@@ -34,8 +34,8 @@ export const COACHING_TIPS: CoachingTip[] = [
   },
   {
     emoji: "🎯",
-    title: "State the intent",
-    body: "A single sentence at the top — 'I want to leave this meeting with a decision on X' — anchors the whole conversation.",
+    title: "Clarifying intentions",
+    body: "Making sure difficult conversations have clear goals helps achieve better results - 'I'm concerned this will come across as an insult, but I really want us to communicate better'.",
   },
   {
     emoji: "👂",
