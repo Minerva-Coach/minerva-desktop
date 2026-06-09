@@ -1,9 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../lib/api";
 
 interface PostMeetingModalProps {
   meetingId: number;
   onClose: () => void;
+  /**
+   * Fired once, the first time the meeting's advice finishes processing and
+   * becomes readable. The parent uses this to pop the panel back up from the
+   * tray (the window hides when the meeting ends, but advice lands seconds-to-
+   * minutes later). Not called for the dev mock path, the empty/timeout state,
+   * or errors — only a genuine "your feedback is ready" moment.
+   */
+  onReady?: () => void;
   /**
    * Dev-only escape hatch — skip the API poll and render the given data
    * immediately. Used by the Simulate button in DevMode for iterating on
@@ -51,6 +59,7 @@ const SUGGESTED_FOCUS: string[] = [
 export function PostMeetingModal({
   meetingId,
   onClose,
+  onReady,
   mockData,
 }: PostMeetingModalProps) {
   const [advice, setAdvice] = useState<AdviceState>(() =>
@@ -65,6 +74,20 @@ export function PostMeetingModal({
     mockData?.decisions ?? []
   );
   const [rating, setRating] = useState<number>(3);
+
+  // Pop the panel up from the tray the first time real advice lands. Guarded
+  // by a ref so re-renders (e.g. productivity syncing on a later poll) don't
+  // re-fire it. Skipped for the dev mock path — the window is already open.
+  const readyFired = useRef(false);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  useEffect(() => {
+    if (mockData || readyFired.current) return;
+    if (advice.kind === "ready") {
+      readyFired.current = true;
+      onReadyRef.current?.();
+    }
+  }, [advice.kind, mockData]);
 
   useEffect(() => {
     if (mockData) return; // dev: skip polling
