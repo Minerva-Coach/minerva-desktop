@@ -364,6 +364,18 @@ export function PanelWindow() {
     if (!hasBotInMeeting) setMeetingVibe(null);
   }, [hasBotInMeeting]);
 
+  // Reset invite state when the meeting ends. inviteStatus is otherwise
+  // never cleared, so a stale "sent" would carry into the next meeting and
+  // keep the blue "Minerva is joining…" banner up — hiding the invite
+  // button and blocking a fresh bot invite for the new meeting.
+  useEffect(() => {
+    if (!inMeeting) {
+      setInviteStatus("idle");
+      setInviteError("");
+      setPastedUrl("");
+    }
+  }, [inMeeting]);
+
   const handleVibeChange = (vibe: MeetingVibe) => {
     setMeetingVibe(vibe);
     if (!activeMeetingId) return;
