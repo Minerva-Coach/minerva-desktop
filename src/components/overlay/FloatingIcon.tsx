@@ -60,17 +60,31 @@ export function FloatingIcon({ message }: FloatingIconProps) {
   const emoji = getEmoji(message);
   if (!emoji) return null;
 
-  // Random horizontal jitter across the wider overlay window
-  const xOffset = 20 + Math.random() * 280;
+  // Anchor at the horizontal center with a small symmetric jitter so icons
+  // stay clustered in the middle. We center via translateX(-50%) rather than
+  // a left-edge offset so the icon's own width (a suggestion is ⏰ + emoji,
+  // ~2x wider than a bare praise emoji) can't push it past the clipped window
+  // edge. ±40px keeps even the widest icon well inside the 340px window.
+  const xJitter = (Math.random() - 0.5) * 80;
 
+  // Outer wrapper owns horizontal placement (translateX); the inner element
+  // owns the float-up animation (which animates translateY). They must be
+  // separate elements — a single element can only hold one `transform`, and
+  // the keyframe's translateY would overwrite an inline translateX.
   return (
     <div
-      className="absolute animate-float-up pointer-events-none"
-      style={{ left: `${xOffset}px`, bottom: "0px" }}
+      className="absolute pointer-events-none"
+      style={{
+        left: "50%",
+        bottom: "0px",
+        transform: `translateX(calc(-50% + ${xJitter}px))`,
+      }}
     >
-      <span className="text-3xl drop-shadow-lg leading-none whitespace-nowrap">
-        {emoji}
-      </span>
+      <div className="animate-float-up">
+        <span className="text-3xl drop-shadow-lg leading-none whitespace-nowrap">
+          {emoji}
+        </span>
+      </div>
     </div>
   );
 }
