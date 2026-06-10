@@ -13,6 +13,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::auth;
 use crate::error_chain;
+use crate::http_client::SHARED as HTTP_CLIENT;
 use crate::process_detector::MeetingState;
 
 /// How often to heartbeat during an active meeting.
@@ -27,11 +28,6 @@ const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// Sends a single DELETE when the meeting ends.
 pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
     tauri::async_runtime::spawn(async move {
-        let client = reqwest::Client::builder()
-            // Accept self-signed certs in debug mode (local dev uses https://127.0.0.1:8000)
-            .danger_accept_invalid_certs(cfg!(debug_assertions))
-            .build()
-            .expect("reqwest client build failed");
         let mut was_in_meeting = false;
         let mut heartbeat_counter: u64 = 0;
 
@@ -57,7 +53,7 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
                             env!("CARGO_PKG_VERSION")
                         );
 
-                        match client
+                        match HTTP_CLIENT
                             .post(&url)
                             .header("Authorization", format!("Bearer {token}"))
                             .header("Content-Type", "application/json")
@@ -105,7 +101,7 @@ pub fn start_heartbeat_loop(app: AppHandle, state: Arc<MeetingState>) {
                     let api_url = auth::get_api_url();
                     let url = format!("{api_url}/api/v1/desktop/presence");
 
-                    match client
+                    match HTTP_CLIENT
                         .delete(&url)
                         .header("Authorization", format!("Bearer {token}"))
                         .send()

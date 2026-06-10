@@ -11,6 +11,7 @@
 mod auth;
 mod commands;
 mod error_chain;
+mod http_client;
 mod presence;
 mod process_detector;
 #[cfg(not(target_os = "linux"))]
