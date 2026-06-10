@@ -28,6 +28,7 @@ use tauri::{AppHandle, Emitter};
 use tiny_http::Method;
 
 use crate::error_chain;
+use crate::http_client::SHARED as HTTP_CLIENT;
 
 const KEYRING_SERVICE: &str = "com.minervacoach.desktop";
 const KEYRING_KEY: &str = "auth_token";
@@ -89,16 +90,6 @@ fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(digest)
 }
 
-/// Build a reqwest client with the same TLS posture used elsewhere in the
-/// app: rustls only, self-signed certs accepted only in debug builds.
-fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .danger_accept_invalid_certs(cfg!(debug_assertions))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .expect("reqwest client build failed")
-}
-
 /// Ask the backend for a one-time nonce that authorizes a single login
 /// attempt. Returns the nonce on success, an error string with full
 /// reqwest source chain on failure — caller surfaces that into the
@@ -106,7 +97,7 @@ fn http_client() -> reqwest::Client {
 /// reason (TLS / DNS / connection refused).
 async fn fetch_auth_nonce(api_url: &str) -> Result<String, String> {
     let url = format!("{api_url}/api/v1/desktop/auth-prepare");
-    let resp = http_client()
+    let resp = HTTP_CLIENT
         .post(&url)
         .send()
         .await
@@ -137,7 +128,7 @@ async fn exchange_code(
     verifier: &str,
 ) -> Result<String, String> {
     let url = format!("{api_url}/api/v1/desktop/auth-exchange");
-    let resp = http_client()
+    let resp = HTTP_CLIENT
         .post(&url)
         .json(&serde_json::json!({
             "code": code,

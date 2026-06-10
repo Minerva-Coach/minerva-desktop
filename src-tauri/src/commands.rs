@@ -4,12 +4,11 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use std::sync::LazyLock;
-
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::auth;
 use crate::error_chain;
+use crate::http_client::SHARED as HTTP_CLIENT;
 use crate::process_detector::MeetingState;
 
 /// Filesystem location of the marker file that records whether the user has
@@ -27,16 +26,6 @@ pub fn welcome_acknowledged(app: &AppHandle) -> bool {
         .map(|p| p.exists())
         .unwrap_or(false)
 }
-
-/// Shared reqwest client — accepts self-signed certs in debug builds.
-/// Redirect following is disabled so we can detect auth failures (302 → /login).
-static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .danger_accept_invalid_certs(cfg!(debug_assertions))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .expect("reqwest client build failed")
-});
 
 /// Start the browser-based OAuth login flow.
 #[tauri::command]
