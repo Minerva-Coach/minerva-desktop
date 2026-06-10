@@ -66,6 +66,7 @@ pub fn run() {
             commands::get_auth_token,
             commands::hide_windows,
             commands::show_windows,
+            commands::show_panel,
             commands::api_request,
             commands::get_app_version,
             commands::get_diagnostic_context,

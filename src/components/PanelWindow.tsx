@@ -272,6 +272,11 @@ export function PanelWindow() {
     }
     const started = activeMeetings.find((id) => !prev.includes(id));
     if (started !== undefined) {
+      // A fresh meeting is starting — dismiss any lingering post-meeting
+      // modal so the previous meeting's feedback can't overlay the new
+      // meeting's coaching (covers the case where advice never became ready
+      // and the modal sat idle in the tray until now).
+      setPostMeetingId((cur) => (cur !== null && cur !== -1 ? null : cur));
       (async () => {
         try {
           const should = await invoke<boolean>("should_auto_show_icon_key");
@@ -363,6 +368,18 @@ export function PanelWindow() {
   useEffect(() => {
     if (!hasBotInMeeting) setMeetingVibe(null);
   }, [hasBotInMeeting]);
+
+  // Reset invite state when the meeting ends. inviteStatus is otherwise
+  // never cleared, so a stale "sent" would carry into the next meeting and
+  // keep the blue "Minerva is joining…" banner up — hiding the invite
+  // button and blocking a fresh bot invite for the new meeting.
+  useEffect(() => {
+    if (!inMeeting) {
+      setInviteStatus("idle");
+      setInviteError("");
+      setPastedUrl("");
+    }
+  }, [inMeeting]);
 
   const handleVibeChange = (vibe: MeetingVibe) => {
     setMeetingVibe(vibe);
@@ -657,6 +674,12 @@ export function PanelWindow() {
         <PostMeetingModal
           meetingId={postMeetingId}
           mockData={postMeetingMock ?? undefined}
+          onReady={() => {
+            // Advice finished processing — pop the panel back up from the
+            // tray (it hid when the meeting ended) so the user sees their
+            // feedback now, not at the start of their next meeting.
+            invoke("show_panel").catch(console.warn);
+          }}
           onClose={() => {
             setPostMeetingId(null);
             setPostMeetingMock(null);

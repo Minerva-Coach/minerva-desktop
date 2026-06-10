@@ -347,6 +347,25 @@ pub async fn show_windows(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Surface the panel window from the tray, unminimizing and focusing it.
+///
+/// Used by the post-meeting flow: when a meeting ends the panel hides to the
+/// tray, but the post-meeting analysis (an LLM call) lands seconds-to-minutes
+/// later. When it's ready we pop the panel back up so the user sees their
+/// feedback right away instead of stumbling on it at the start of their next
+/// meeting. Deliberately panel-only — unlike `show_windows` we don't reveal
+/// the coaching overlay, since no meeting is in progress.
+#[tauri::command]
+pub async fn show_panel(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("panel") {
+        let _ = w.unminimize();
+        w.show().map_err(|e| e.to_string())?;
+        let _ = w.set_always_on_top(true);
+        let _ = w.set_focus();
+    }
+    Ok(())
+}
+
 /// Proxy an API request through Rust's reqwest client.
 /// This bypasses the webview's TLS restrictions (self-signed certs in dev).
 ///
