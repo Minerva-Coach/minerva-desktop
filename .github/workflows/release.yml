@@ -171,7 +171,7 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.sig
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.json
-            src-tauri/target/${{ matrix.target }}/release/minerva-desktop.pdb
+            src-tauri/target/${{ matrix.target }}/release/minerva_desktop.pdb
             minerva-desktop-${{ matrix.target }}.cdx.json
           if-no-files-found: warn
 

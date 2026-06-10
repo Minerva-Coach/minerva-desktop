@@ -70,3 +70,8 @@ wmi = "0.14"
 strip = true
 lto = true
 codegen-units = 1
+# Emit a PDB so crash dumps from shipped builds can be symbolicated.
+# `strip = true` keeps the shipped exe small; debug info lives in the
+# separate .pdb that CI uploads as a workflow artifact.
+debug = "full"
+split-debuginfo = "packed"
