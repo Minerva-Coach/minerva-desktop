@@ -121,39 +121,31 @@ pub struct MeetingStartedPayload {
 }
 
 /// Start the process detection loop in a background task.
+///
+/// The detection cycle (`sysinfo::refresh_processes_specifics`, `EnumWindows`
+/// on Windows, `CGWindowListCopyWindowInfo` on macOS, `pgrep`/`xdotool` on
+/// Linux) is fully synchronous and on Windows can take 100s of ms per call.
+/// Each cycle is dispatched to `tokio::task::spawn_blocking` so it doesn't
+/// stall other tasks on the same tokio runtime worker — most importantly
+/// `presence::start_heartbeat_loop`'s in-flight rustls connection, which
+/// would otherwise miss timer / read callbacks while detection ran.
 pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
     tauri::async_runtime::spawn(async move {
-        let mut sys = System::new();
         let mut was_in_meeting = false;
 
         loop {
-            sys.refresh_processes_specifics(
-                ProcessesToUpdate::All,
-                true,
-                ProcessRefreshKind::nothing(),
-            );
-
-            let zoom_running = sys.processes().values().any(|p| {
-                let name = p.name().to_string_lossy().to_lowercase();
-                ZOOM_PROCESS_NAMES
-                    .iter()
-                    .any(|z| name == z.to_lowercase())
+            let detection_state = Arc::clone(&state);
+            let (detected, meeting_url) = tokio::task::spawn_blocking(move || {
+                run_detection_cycle(&detection_state)
+            })
+            .await
+            .unwrap_or_else(|e| {
+                // JoinError is either a panic or a cancellation. Either way,
+                // skip this cycle rather than poisoning the loop — the next
+                // tick will retry from a clean state.
+                log::warn!("Detection cycle blocking task failed: {e}");
+                (None, None)
             });
-            let teams_running = sys.processes().values().any(|p| {
-                let name = p.name().to_string_lossy().to_lowercase();
-                TEAMS_PROCESS_NAMES
-                    .iter()
-                    .any(|t| name == t.to_lowercase())
-            });
-
-            // Zoom wins ties — see module docstring.
-            let detected: Option<&'static str> = if zoom_running && is_in_active_meeting() {
-                Some("zoom")
-            } else if teams_running && is_in_active_teams_meeting() {
-                Some("teams")
-            } else {
-                None
-            };
 
             let in_meeting = detected.is_some();
             state.in_meeting.store(in_meeting, Ordering::Relaxed);
@@ -163,13 +155,6 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
             // trigger a tao/GTK panic on Linux via glib channel dispatch.
             if in_meeting && !was_in_meeting {
                 let platform = detected.unwrap();
-                let meeting_url = if platform == "zoom" {
-                    extract_zoom_meeting_url(&state)
-                } else {
-                    // Teams join URLs aren't on the cmdline; the frontend
-                    // fetches them from /api/teams/meetings/live.
-                    None
-                };
                 // Don't log the URL — it identifies a specific meeting (P3-G).
                 log::debug!(
                     "Active {} meeting detected (url present: {})",
@@ -192,6 +177,53 @@ pub fn start_detection_loop(app: AppHandle, state: Arc<MeetingState>) {
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     });
+}
+
+/// One pass of the detection logic. Runs inside `spawn_blocking` because
+/// every line here is a blocking syscall (`sysinfo` process enumeration,
+/// platform window-list APIs, `pgrep`/`xdotool` `Command::output()` on Linux).
+/// Returns `(detected_platform, optional_zoom_url)`.
+fn run_detection_cycle(
+    state: &MeetingState,
+) -> (Option<&'static str>, Option<String>) {
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing(),
+    );
+
+    let zoom_running = sys.processes().values().any(|p| {
+        let name = p.name().to_string_lossy().to_lowercase();
+        ZOOM_PROCESS_NAMES
+            .iter()
+            .any(|z| name == z.to_lowercase())
+    });
+    let teams_running = sys.processes().values().any(|p| {
+        let name = p.name().to_string_lossy().to_lowercase();
+        TEAMS_PROCESS_NAMES
+            .iter()
+            .any(|t| name == t.to_lowercase())
+    });
+
+    // Zoom wins ties — see module docstring.
+    let detected: Option<&'static str> = if zoom_running && is_in_active_meeting() {
+        Some("zoom")
+    } else if teams_running && is_in_active_teams_meeting() {
+        Some("teams")
+    } else {
+        None
+    };
+
+    let meeting_url = if detected == Some("zoom") {
+        extract_zoom_meeting_url(state)
+    } else {
+        // Teams join URLs aren't on the cmdline; the frontend
+        // fetches them from /api/teams/meetings/live.
+        None
+    };
+
+    (detected, meeting_url)
 }
 
 /// Extract the value of a URL query parameter from a string. Stops at any
