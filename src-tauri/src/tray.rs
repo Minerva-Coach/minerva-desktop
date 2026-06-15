@@ -48,6 +48,7 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
                 let _ = app.emit("show-about", ());
             }
             "tray_quit" => {
+                log::info!("Tray 'Quit' selected — exiting app");
                 app.exit(0);
             }
             _ => {}

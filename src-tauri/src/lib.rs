@@ -27,8 +27,6 @@ use process_detector::MeetingState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
-
     let meeting_state = Arc::new(MeetingState::new());
 
     tauri::Builder::default()
@@ -49,6 +47,23 @@ pub fn run() {
             }
             let _ = app.emit("second-instance-launched", ());
         }))
+        // File logging to the app log dir (Windows:
+        // %LOCALAPPDATA%\com.minervacoach.desktop\logs). The shipped build is
+        // windows_subsystem="windows" with no console, so env_logger's stderr
+        // output went nowhere — when the app vanished there was no record of
+        // why. This persists lifecycle events (window close, exit requests,
+        // tray quit) to disk so "it just closed on its own" is diagnosable.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                ])
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -57,6 +72,27 @@ pub fn run() {
             None,
         ))
         .manage(meeting_state.clone())
+        // Panel and overlay are the app's persistent surfaces — they live for
+        // the whole session and are only ever hidden, never destroyed. If a
+        // user closes one (Alt+F4, or the taskbar "Close window" entry the
+        // panel exposes via skipTaskbar:false), the default Tauri behavior
+        // destroys the window; once the last window is gone the app exits
+        // cleanly with no warning — which is exactly the "it closed on its
+        // own" symptom. Intercept CloseRequested on these two and hide instead.
+        // Helper windows (icon-key, focus-goals, agenda, coaching) are
+        // on-demand and may close normally.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label();
+                if label == "panel" || label == "overlay" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    log::info!("CloseRequested on '{label}' intercepted — hidden to tray");
+                } else {
+                    log::info!("CloseRequested on '{label}' — closing window");
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::start_login,
             commands::logout,
@@ -187,6 +223,23 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running minerva desktop app");
+        .build(tauri::generate_context!())
+        .expect("error while running minerva desktop app")
+        .run(|_app, event| {
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+                // code == None means the runtime wants to exit because the last
+                // window closed. For a tray-resident app that is not a real
+                // quit — keep running in the background so the tray icon stays
+                // live. An explicit quit (tray "Quit" → app.exit(0)) carries
+                // Some(code) and is allowed through. Belt-and-suspenders with
+                // the on_window_event hide handler above: even if some future
+                // path destroys the last window, the app survives.
+                if code.is_none() {
+                    api.prevent_exit();
+                    log::info!("ExitRequested (all windows closed) prevented — staying in tray");
+                } else {
+                    log::info!("ExitRequested (code={code:?}) — exiting");
+                }
+            }
+        });
 }
