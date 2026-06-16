@@ -48,31 +48,40 @@ export function OverlayWindow() {
   const [icons, setIcons] = useState<ActiveIcon[]>([]);
   const [visible, setVisible] = useState(false);
   const [repositioning, setRepositioning] = useState(false);
-  const [cursorInHeader, setCursorInHeader] = useState(false);
 
-  // Click-through policy:
-  //   - Off (interactive) when repositioning OR cursor is over the header.
-  //   - On (passes through) otherwise.
+  // Reposition (fallback) mode: the whole window is interactive so the user
+  // can drag from anywhere. This is the only writer of click-through while
+  // repositioning — the header poll below bails out in this mode.
   useEffect(() => {
-    if (!visible) return;
-    const ignoreEvents = !repositioning && !cursorInHeader;
+    if (!visible || !repositioning) return;
     getCurrentWebviewWindow()
-      .setIgnoreCursorEvents(ignoreEvents)
+      .setIgnoreCursorEvents(false)
       .catch(() => {});
-  }, [visible, repositioning, cursorInHeader]);
+  }, [visible, repositioning]);
 
-  // Poll cursor position to detect when it enters/leaves the header rect.
-  // We can't use DOM mouseenter/leave because the window is click-through
-  // when the cursor is *outside* the header — DOM events never fire.
+  // Normal mode: poll the cursor and *apply* the click-through state on every
+  // tick. We can't use DOM mouseenter/leave because the window is click-through
+  // whenever the cursor is outside the header, so those events never fire.
+  //
+  // The poll is the single, continuous authority for click-through here — it
+  // re-asserts the correct state every tick rather than relying on a React
+  // effect that only fires when a dependency changes. That matters because the
+  // overlay's click-through can drift out from under React: a meeting start
+  // races `setIgnoreCursorEvents` against the panel's `show_windows`
+  // (show + set_always_on_top), and overlapping async toggles can land out of
+  // order. Re-asserting every ~80ms means any such drift self-heals within one
+  // interval instead of leaving the header stuck click-through (undraggable)
+  // until the user enters/exits reposition mode. The `busy` guard serializes
+  // ticks so two toggles are never in flight at once.
   useEffect(() => {
-    if (!visible || repositioning) {
-      setCursorInHeader(false);
-      return;
-    }
+    if (!visible || repositioning) return;
     const win = getCurrentWebviewWindow();
     let cancelled = false;
+    let busy = false;
 
     const tick = async () => {
+      if (busy) return;
+      busy = true;
       try {
         const [cx, cy] = await invoke<[number, number]>("get_cursor_position");
         const [wpos, wsize, scale] = await Promise.all([
@@ -86,12 +95,17 @@ export function OverlayWindow() {
           cx < wpos.x + wsize.width &&
           cy >= wpos.y &&
           cy < wpos.y + headerHeightPx;
-        if (!cancelled) setCursorInHeader(over);
+        // Interactive over the header (so mousedown reaches startDragging),
+        // click-through everywhere else.
+        if (!cancelled) await win.setIgnoreCursorEvents(!over);
       } catch {
         /* ignore */
+      } finally {
+        busy = false;
       }
     };
 
+    tick(); // apply immediately rather than waiting a full interval
     const interval = window.setInterval(tick, CURSOR_POLL_MS);
     return () => {
       cancelled = true;
