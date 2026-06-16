@@ -149,15 +149,29 @@ export function PanelWindow() {
   }, [isConnected, refreshAccounts]);
 
   // When the bot joins a meeting, Zoom often transitions to full-screen
-  // meeting mode which can demote always-on-top windows and occasionally
-  // minimize the panel on Windows. Defensively re-assert the panel's
+  // meeting mode which can demote always-on-top windows and minimize the
+  // panel to the taskbar on Windows. Defensively re-assert the panel's
   // visibility on the false → true transition.
+  //
+  // A single show_windows() races Zoom's transition: the demotion/minimize
+  // can land a beat *after* the bot-join event, leaving the panel minimized.
+  // So we re-assert a few times across a short window to ride out that
+  // transition. The burst is deliberately brief (~3s) — once it ends the
+  // user is free to minimize the panel themselves; we only fight the
+  // *automatic* minimize that accompanies the bot joining.
   const prevHadBot = useRef(false);
   useEffect(() => {
-    if (hasBotInMeeting && !prevHadBot.current) {
-      invoke("show_windows").catch(console.warn);
+    if (!hasBotInMeeting || prevHadBot.current) {
+      prevHadBot.current = hasBotInMeeting;
+      return;
     }
-    prevHadBot.current = hasBotInMeeting;
+    prevHadBot.current = true;
+    // Re-assert immediately and then over the next few seconds.
+    const delays = [0, 500, 1200, 2500];
+    const timers = delays.map((ms) =>
+      setTimeout(() => invoke("show_windows").catch(console.warn), ms)
+    );
+    return () => timers.forEach(clearTimeout);
   }, [hasBotInMeeting]);
 
   // Invite state
