@@ -41,6 +41,7 @@ export function PanelWindow() {
     activeMeetings,
     lastChartData,
     lastSocketError,
+    lastAdviceReady,
     sendMeetingStatus,
   } = useSocket();
   const hasBotInMeeting = activeMeetings.length > 0;
@@ -223,6 +224,23 @@ export function PanelWindow() {
     React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
   >(null);
   const [releaseNotes, setReleaseNotes] = useState<{ version: string; body: string } | null>(null);
+
+  // Tracks meetings whose post-meeting feedback has already been acknowledged
+  // (closed). When advice_ready arrives after the user dismissed the modal
+  // early, we re-open it — but only once per meeting per session.
+  const ackedMeetings = useRef<Set<number>>(new Set());
+
+  // Re-open the post-meeting popup if advice finishes after the user closed
+  // the modal during its "Processing..." phase. Without this, closing the
+  // modal early means the user never knows their feedback became available.
+  useEffect(() => {
+    if (!lastAdviceReady) return;
+    const meetingId = lastAdviceReady.meeting_id;
+    if (postMeetingId !== null) return; // modal is already open
+    if (ackedMeetings.current.has(meetingId)) return; // user already saw it
+    setPostMeetingId(meetingId);
+    invoke("show_panel").catch(console.warn);
+  }, [lastAdviceReady]);
 
   // Show "What's New" popup once after an auto-update. The updater writes to
   // localStorage before calling relaunch(); we read and clear it here.
@@ -719,6 +737,9 @@ export function PanelWindow() {
             invoke("show_panel").catch(console.warn);
           }}
           onClose={() => {
+            if (postMeetingId !== null && postMeetingId > 0) {
+              ackedMeetings.current.add(postMeetingId);
+            }
             setPostMeetingId(null);
             setPostMeetingMock(null);
           }}
