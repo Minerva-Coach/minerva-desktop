@@ -168,8 +168,11 @@ export function PanelWindow() {
       return;
     }
     prevHadBot.current = true;
-    // Re-assert immediately and then over the next few seconds.
-    const delays = [0, 500, 1200, 2500];
+    // Re-assert over a ~6s window. Zoom's full-screen transition can
+    // arrive several seconds after the bot-join event fires, and the
+    // exact timing varies by machine speed and GPU — so we spread
+    // across a wider window than the original [0,500,1200,2500].
+    const delays = [0, 500, 1200, 2500, 4000, 6000];
     const timers = delays.map((ms) =>
       setTimeout(() => invoke("show_windows").catch(console.warn), ms)
     );
