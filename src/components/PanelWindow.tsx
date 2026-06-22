@@ -18,6 +18,7 @@ import { AboutModal } from "./panel/AboutModal";
 import { CompanionIntroBanner } from "./panel/CompanionIntroBanner";
 import { useFeatureState } from "../hooks/use-feature-state";
 import { PostMeetingModal } from "./panel/PostMeetingModal";
+import { ReleaseNotesModal } from "./panel/ReleaseNotesModal";
 import { PasteLinkModal } from "./panel/PasteLinkModal";
 import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
 import { MacosPermissionGate } from "./panel/MacosPermissionGate";
@@ -221,6 +222,21 @@ export function PanelWindow() {
   const [postMeetingMock, setPostMeetingMock] = useState<
     React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
   >(null);
+  const [releaseNotes, setReleaseNotes] = useState<{ version: string; body: string } | null>(null);
+
+  // Show "What's New" popup once after an auto-update. The updater writes to
+  // localStorage before calling relaunch(); we read and clear it here.
+  useEffect(() => {
+    const raw = localStorage.getItem("minerva_release_notes_pending");
+    if (!raw) return;
+    localStorage.removeItem("minerva_release_notes_pending");
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.version) setReleaseNotes(parsed);
+    } catch {
+      // Malformed storage entry — ignore.
+    }
+  }, []);
 
   // Session-only dismiss for the "detected platform isn't connected"
   // banner. Resets each app launch — if Teams still isn't linked next
@@ -504,7 +520,7 @@ export function PanelWindow() {
         <div className="space-y-2">
           <div className="py-2 px-2 rounded bg-green-900/20 border border-green-800/30">
             <p className="text-[10px] text-green-300 font-medium">
-              Minerva is coaching this meeting
+              Minerva will join shortly
             </p>
           </div>
           <div className="flex items-center justify-between gap-2">
@@ -681,6 +697,14 @@ export function PanelWindow() {
           onSignOut={handleSignOut}
           featureState={featureState}
           setFeatureEnabled={setFeatureEnabled}
+        />
+      )}
+
+      {releaseNotes && !showAbout && postMeetingId === null && (
+        <ReleaseNotesModal
+          version={releaseNotes.version}
+          notes={releaseNotes.body}
+          onClose={() => setReleaseNotes(null)}
         />
       )}
 
