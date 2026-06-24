@@ -168,11 +168,12 @@ export function PanelWindow() {
       return;
     }
     prevHadBot.current = true;
-    // Re-assert over a ~6s window. Zoom's full-screen transition can
-    // arrive several seconds after the bot-join event fires, and the
-    // exact timing varies by machine speed and GPU — so we spread
-    // across a wider window than the original [0,500,1200,2500].
-    const delays = [0, 500, 1200, 2500, 4000, 6000];
+    // Re-assert always-on-top over the first ~2.5s of the bot-join
+    // transition. This covers z-order demotion (Zoom pushing us below
+    // its window) without an actual minimize. Actual minimize events
+    // are caught reactively by the Rust on_window_event handler in
+    // lib.rs (Resized 0×0), so the burst can stay short.
+    const delays = [0, 500, 1200, 2500];
     const timers = delays.map((ms) =>
       setTimeout(() => invoke("show_windows").catch(console.warn), ms)
     );
