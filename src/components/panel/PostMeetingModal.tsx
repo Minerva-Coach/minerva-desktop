@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { apiFetch } from "../../lib/api";
 
 interface PostMeetingModalProps {
@@ -284,7 +285,20 @@ export function PostMeetingModal({
 
         <p className="pt-2 text-[10px] text-gray-500 leading-relaxed border-t border-gray-800">
           Full feedback — transcript, behavior breakdown, and charts — is
-          available on the My Meetings page of your dashboard.
+          available on the{" "}
+          <button
+            onClick={() => {
+              const url =
+                meetingId > 0
+                  ? `https://minervacoach.com/my-meetings?meeting=${meetingId}`
+                  : "https://minervacoach.com/my-meetings";
+              openExternal(url).catch(console.warn);
+            }}
+            className="underline text-gray-400 hover:text-gray-200 cursor-pointer transition-colors"
+          >
+            My Meetings page
+          </button>{" "}
+          of your dashboard.
         </p>
       </div>
     </div>

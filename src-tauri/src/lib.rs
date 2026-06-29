@@ -82,15 +82,35 @@ pub fn run() {
         // Helper windows (icon-key, focus-goals, agenda, coaching) are
         // on-demand and may close normally.
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let label = window.label();
-                if label == "panel" || label == "overlay" {
-                    api.prevent_close();
-                    let _ = window.hide();
-                    log::info!("CloseRequested on '{label}' intercepted — hidden to tray");
-                } else {
-                    log::info!("CloseRequested on '{label}' — closing window");
+            let label = window.label();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    if label == "panel" || label == "overlay" {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        log::info!("CloseRequested on '{label}' intercepted — hidden to tray");
+                    } else {
+                        log::info!("CloseRequested on '{label}' — closing window");
+                    }
                 }
+                // Zoom (and other fullscreen apps on Windows) can call
+                // SW_MINIMIZE on windows they consider "in the way" during
+                // their fullscreen transition. Tauri surfaces this as a
+                // Resized event with both dimensions zeroed. Intercept it
+                // and immediately restore so the panel stays visible.
+                // Note: w.hide() does NOT fire this event (it only clears
+                // WS_VISIBLE without resizing), so this won't fight the
+                // user's own hide-via-_ button.
+                tauri::WindowEvent::Resized(size)
+                    if size.width == 0 && size.height == 0
+                        && (label == "panel" || label == "overlay") =>
+                {
+                    log::info!("'{label}' minimized externally — restoring always-on-top");
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_always_on_top(true);
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
