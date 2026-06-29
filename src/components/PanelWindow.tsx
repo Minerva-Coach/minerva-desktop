@@ -23,6 +23,7 @@ import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
 import { MacosPermissionGate } from "./panel/MacosPermissionGate";
 import { WelcomeComplete } from "./panel/WelcomeComplete";
 import { ConnectionIssueModal } from "./panel/ConnectionIssueModal";
+import { CoreBehaviorSkillsPanel } from "./panel/CoreBehaviorSkillsPanel";
 import { apiFetch } from "../lib/api";
 import { findBehavior } from "../constants/behaviors";
 
@@ -866,6 +867,7 @@ export function PanelWindow() {
               </div>
             )}
             {renderMeetingSection()}
+            <CoreBehaviorSkillsPanel />
             <Gauges chartData={chartData} hasBotInMeeting={hasBotInMeeting} />
             {import.meta.env.DEV && <DevMode />}
           </>
