@@ -6,6 +6,7 @@ import { useAuth } from "../hooks/use-auth";
 import { useSocket } from "../hooks/use-socket";
 import { useDevChartData } from "../hooks/use-dev-events";
 import { useConnectedAccounts } from "../hooks/use-connected-accounts";
+import { useCalendarStatus } from "../hooks/use-calendar-status";
 import { useMeetingStatus } from "../hooks/use-meeting-status";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useWelcomeAcknowledged } from "../hooks/use-welcome-acknowledged";
@@ -24,6 +25,7 @@ import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
 import { MacosPermissionGate } from "./panel/MacosPermissionGate";
 import { WelcomeComplete } from "./panel/WelcomeComplete";
 import { ConnectionIssueModal } from "./panel/ConnectionIssueModal";
+import { CoreBehaviorSkillsPanel } from "./panel/CoreBehaviorSkillsPanel";
 import { apiFetch } from "../lib/api";
 import { findBehavior } from "../constants/behaviors";
 
@@ -60,6 +62,10 @@ export function PanelWindow() {
   } = useConnectedAccounts(isAuthenticated);
   const hasPlatformConnected =
     accounts.zoom.connected || accounts.teams.connected;
+  const {
+    status: calendarStatus,
+    loading: calendarLoading,
+  } = useCalendarStatus(isAuthenticated);
   const presenceError = usePresenceError();
   const { acknowledged: welcomeAcknowledged, acknowledge: acknowledgeWelcome } =
     useWelcomeAcknowledged();
@@ -878,6 +884,8 @@ export function PanelWindow() {
               accounts={accounts}
               loading={accountsLoading}
               onRefresh={refreshAccounts}
+              calendarStatus={calendarStatus}
+              calendarLoading={calendarLoading}
             />
             {/* Heartbeat-failure banner: only relevant in a meeting, since
                 presence is what tells the backend "user is in this Zoom call"
@@ -929,6 +937,7 @@ export function PanelWindow() {
               </div>
             )}
             {renderMeetingSection()}
+            <CoreBehaviorSkillsPanel />
             <Gauges chartData={chartData} hasBotInMeeting={hasBotInMeeting} />
             {import.meta.env.DEV && <DevMode />}
           </>
