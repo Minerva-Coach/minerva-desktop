@@ -18,6 +18,7 @@ import { AboutModal } from "./panel/AboutModal";
 import { CompanionIntroBanner } from "./panel/CompanionIntroBanner";
 import { useFeatureState } from "../hooks/use-feature-state";
 import { PostMeetingModal } from "./panel/PostMeetingModal";
+import { ReleaseNotesModal } from "./panel/ReleaseNotesModal";
 import { PasteLinkModal } from "./panel/PasteLinkModal";
 import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
 import { MacosPermissionGate } from "./panel/MacosPermissionGate";
@@ -40,6 +41,7 @@ export function PanelWindow() {
     activeMeetings,
     lastChartData,
     lastSocketError,
+    lastAdviceReady,
     sendMeetingStatus,
   } = useSocket();
   const hasBotInMeeting = activeMeetings.length > 0;
@@ -166,7 +168,11 @@ export function PanelWindow() {
       return;
     }
     prevHadBot.current = true;
-    // Re-assert immediately and then over the next few seconds.
+    // Re-assert always-on-top over the first ~2.5s of the bot-join
+    // transition. This covers z-order demotion (Zoom pushing us below
+    // its window) without an actual minimize. Actual minimize events
+    // are caught reactively by the Rust on_window_event handler in
+    // lib.rs (Resized 0×0), so the burst can stay short.
     const delays = [0, 500, 1200, 2500];
     const timers = delays.map((ms) =>
       setTimeout(() => invoke("show_windows").catch(console.warn), ms)
@@ -221,6 +227,38 @@ export function PanelWindow() {
   const [postMeetingMock, setPostMeetingMock] = useState<
     React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
   >(null);
+  const [releaseNotes, setReleaseNotes] = useState<{ version: string; body: string } | null>(null);
+
+  // Tracks meetings whose post-meeting feedback has already been acknowledged
+  // (closed). When advice_ready arrives after the user dismissed the modal
+  // early, we re-open it — but only once per meeting per session.
+  const ackedMeetings = useRef<Set<number>>(new Set());
+
+  // Re-open the post-meeting popup if advice finishes after the user closed
+  // the modal during its "Processing..." phase. Without this, closing the
+  // modal early means the user never knows their feedback became available.
+  useEffect(() => {
+    if (!lastAdviceReady) return;
+    const meetingId = lastAdviceReady.meeting_id;
+    if (postMeetingId !== null) return; // modal is already open
+    if (ackedMeetings.current.has(meetingId)) return; // user already saw it
+    setPostMeetingId(meetingId);
+    invoke("show_panel").catch(console.warn);
+  }, [lastAdviceReady]);
+
+  // Show "What's New" popup once after an auto-update. The updater writes to
+  // localStorage before calling relaunch(); we read and clear it here.
+  useEffect(() => {
+    const raw = localStorage.getItem("minerva_release_notes_pending");
+    if (!raw) return;
+    localStorage.removeItem("minerva_release_notes_pending");
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.version) setReleaseNotes(parsed);
+    } catch {
+      // Malformed storage entry — ignore.
+    }
+  }, []);
 
   // Session-only dismiss for the "detected platform isn't connected"
   // banner. Resets each app launch — if Teams still isn't linked next
@@ -395,6 +433,20 @@ export function PanelWindow() {
     }
   }, [inMeeting]);
 
+  // If the invite was accepted by the backend but the bot doesn't actually
+  // appear within 2 minutes, reset so the user can try again. The backend
+  // accepts the URL before the bot attempts to join, so a bad meeting ID or
+  // wrong password produces a 200 from /api/meetings but the bot never shows
+  // up — leaving the blue "joining" banner stuck with no way to retry.
+  useEffect(() => {
+    if (inviteStatus !== "sent" || hasBotInMeeting) return;
+    const timer = setTimeout(() => {
+      setInviteStatus("error");
+      setInviteError("Minerva didn't join — try a different link");
+    }, 120_000);
+    return () => clearTimeout(timer);
+  }, [inviteStatus, hasBotInMeeting]);
+
   const handleVibeChange = (vibe: MeetingVibe) => {
     setMeetingVibe(vibe);
     if (!activeMeetingId) return;
@@ -504,7 +556,7 @@ export function PanelWindow() {
         <div className="space-y-2">
           <div className="py-2 px-2 rounded bg-green-900/20 border border-green-800/30">
             <p className="text-[10px] text-green-300 font-medium">
-              Minerva is coaching this meeting
+              Minerva will join shortly
             </p>
           </div>
           <div className="flex items-center justify-between gap-2">
@@ -684,6 +736,14 @@ export function PanelWindow() {
         />
       )}
 
+      {releaseNotes && !showAbout && postMeetingId === null && (
+        <ReleaseNotesModal
+          version={releaseNotes.version}
+          notes={releaseNotes.body}
+          onClose={() => setReleaseNotes(null)}
+        />
+      )}
+
       {postMeetingId !== null && !showAbout && (
         <PostMeetingModal
           meetingId={postMeetingId}
@@ -695,6 +755,9 @@ export function PanelWindow() {
             invoke("show_panel").catch(console.warn);
           }}
           onClose={() => {
+            if (postMeetingId !== null && postMeetingId > 0) {
+              ackedMeetings.current.add(postMeetingId);
+            }
             setPostMeetingId(null);
             setPostMeetingMock(null);
           }}

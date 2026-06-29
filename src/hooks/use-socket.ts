@@ -13,12 +13,18 @@ interface ConnectedPayload {
   timestamp: string;
 }
 
+interface AdviceReadyPayload {
+  meeting_id: number;
+  timestamp: string;
+}
+
 interface UseSocketReturn {
   isConnected: boolean;
   activeMeetings: number[];
   lastCoachingMessage: CoachingMessage | null;
   lastChartData: CompanionDataUpdate | null;
   lastSocketError: string | null;
+  lastAdviceReady: AdviceReadyPayload | null;
   sendMeetingStatus: (status: string, meetingId: number) => void;
 }
 
@@ -46,6 +52,7 @@ export function useSocket(): UseSocketReturn {
   const [lastChartData, setLastChartData] =
     useState<CompanionDataUpdate | null>(null);
   const [lastSocketError, setLastSocketError] = useState<string | null>(null);
+  const [lastAdviceReady, setLastAdviceReady] = useState<AdviceReadyPayload | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const isPanel = getCurrentWebviewWindow().label === PANEL_LABEL;
@@ -122,6 +129,9 @@ export function useSocket(): UseSocketReturn {
       }),
       listen<string>("socket-error", (event) => {
         setLastSocketError(event.payload);
+      }),
+      listen<AdviceReadyPayload>("socket-advice-ready", (event) => {
+        setLastAdviceReady(event.payload);
       }),
     ];
     return () => {
@@ -217,6 +227,12 @@ export function useSocket(): UseSocketReturn {
         emit("socket-companion-data", payload);
       });
 
+      socket.on("advice_ready", (payload: AdviceReadyPayload) => {
+        if (cancelled) return;
+        setLastAdviceReady(payload);
+        emit("socket-advice-ready", payload);
+      });
+
       // No periodic refresh_meetings poll. The backend subscribes each client
       // to a single per-user room at connect (and again on reconnect), so
       // coaching/companion events arrive regardless of when a meeting starts.
@@ -251,6 +267,7 @@ export function useSocket(): UseSocketReturn {
     lastCoachingMessage,
     lastChartData,
     lastSocketError,
+    lastAdviceReady,
     sendMeetingStatus,
   };
 }

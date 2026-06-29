@@ -89,6 +89,10 @@ export function useUpdater({
           setStatus({ kind: "installing", version: update.version });
         }
       });
+      localStorage.setItem(
+        "minerva_release_notes_pending",
+        JSON.stringify({ version: update.version, body: update.body ?? "" })
+      );
       await relaunch();
     } catch (err) {
       setStatus({ kind: "error", message: String(err) });
