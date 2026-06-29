@@ -433,6 +433,20 @@ export function PanelWindow() {
     }
   }, [inMeeting]);
 
+  // If the invite was accepted by the backend but the bot doesn't actually
+  // appear within 2 minutes, reset so the user can try again. The backend
+  // accepts the URL before the bot attempts to join, so a bad meeting ID or
+  // wrong password produces a 200 from /api/meetings but the bot never shows
+  // up — leaving the blue "joining" banner stuck with no way to retry.
+  useEffect(() => {
+    if (inviteStatus !== "sent" || hasBotInMeeting) return;
+    const timer = setTimeout(() => {
+      setInviteStatus("error");
+      setInviteError("Minerva didn't join — try a different link");
+    }, 120_000);
+    return () => clearTimeout(timer);
+  }, [inviteStatus, hasBotInMeeting]);
+
   const handleVibeChange = (vibe: MeetingVibe) => {
     setMeetingVibe(vibe);
     if (!activeMeetingId) return;
