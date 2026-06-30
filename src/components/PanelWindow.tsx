@@ -12,7 +12,6 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useWelcomeAcknowledged } from "../hooks/use-welcome-acknowledged";
 import { usePresenceError } from "../hooks/use-presence";
 import { useUpdaterContext } from "../contexts/updater-context";
-import { AccountStatus } from "./panel/AccountStatus";
 import { Gauges } from "./panel/Gauges";
 import { DevMode } from "./panel/DevMode";
 import { AboutModal } from "./panel/AboutModal";
@@ -25,7 +24,6 @@ import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
 import { MacosPermissionGate } from "./panel/MacosPermissionGate";
 import { WelcomeComplete } from "./panel/WelcomeComplete";
 import { ConnectionIssueModal } from "./panel/ConnectionIssueModal";
-import { CoreBehaviorSkillsPanel } from "./panel/CoreBehaviorSkillsPanel";
 import { apiFetch } from "../lib/api";
 import { findBehavior } from "../constants/behaviors";
 
@@ -196,6 +194,21 @@ export function PanelWindow() {
   const [pasteModalInitialError, setPasteModalInitialError] = useState("");
 
   const [showAbout, setShowAbout] = useState(false);
+  const [aboutVisited, setAboutVisited] = useState(
+    () => localStorage.getItem("minerva_about_visited") === "true"
+  );
+  const openAbout = () => {
+    if (!aboutVisited) {
+      localStorage.setItem("minerva_about_visited", "true");
+      setAboutVisited(true);
+    }
+    setShowAbout(true);
+  };
+
+  const isAnyCalendarConnected =
+    calendarStatus?.microsoft.status === "connected" ||
+    calendarStatus?.google.status === "connected";
+  const fullySetUp = hasPlatformConnected && !!isAnyCalendarConnected;
   // Connection Issue modal: opens automatically on a fresh sign-in failure
   // (so non-technical users see the diagnostic without hunting for it) and
   // can also be opened by clicking the Disconnected status bar.
@@ -294,7 +307,7 @@ export function PanelWindow() {
   // Open About when the tray "About" menu item fires.
   useEffect(() => {
     const unlisten = listen("show-about", () => {
-      setShowAbout(true);
+      openAbout();
     });
     return () => {
       unlisten.then((fn) => fn());
@@ -669,13 +682,22 @@ export function PanelWindow() {
           Minerva Coach
         </span>
         <div className="flex gap-1" data-no-drag>
-          <button
-            onClick={() => setShowAbout(true)}
-            className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:bg-gray-600 hover:text-white transition-colors text-xs"
-            title="About"
-          >
-            ⓘ
-          </button>
+          <div className="relative">
+            <button
+              onClick={openAbout}
+              className={`w-5 h-5 rounded flex items-center justify-center transition-colors text-xs ${
+                !aboutVisited
+                  ? "text-blue-300 hover:bg-blue-800/50 hover:text-blue-100"
+                  : "text-gray-400 hover:bg-gray-600 hover:text-white"
+              }`}
+              title="About"
+            >
+              ⓘ
+            </button>
+            {!aboutVisited && (
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse pointer-events-none" />
+            )}
+          </div>
           <button
             onClick={handleHide}
             className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:bg-gray-600 hover:text-white transition-colors text-xs"
@@ -739,6 +761,11 @@ export function PanelWindow() {
           onSignOut={handleSignOut}
           featureState={featureState}
           setFeatureEnabled={setFeatureEnabled}
+          accounts={accounts}
+          accountsLoading={accountsLoading}
+          onRefreshAccounts={refreshAccounts}
+          calendarStatus={calendarStatus}
+          calendarLoading={calendarLoading}
         />
       )}
 
@@ -880,13 +907,29 @@ export function PanelWindow() {
           <WelcomeComplete onAcknowledge={acknowledgeWelcome} />
         ) : (
           <>
-            <AccountStatus
-              accounts={accounts}
-              loading={accountsLoading}
-              onRefresh={refreshAccounts}
-              calendarStatus={calendarStatus}
-              calendarLoading={calendarLoading}
-            />
+            {/* Warning: no calendar linked (shown when status has loaded and none connected) */}
+            {!calendarLoading && calendarStatus !== null && !isAnyCalendarConnected && (
+              <div className="py-1.5 px-2 rounded bg-amber-900/30 border border-amber-800/40 flex items-center justify-between gap-2">
+                <p className="text-[10px] text-amber-200">
+                  ⚠ No calendar linked — auto-join won't work
+                </p>
+                <button
+                  onClick={openAbout}
+                  className="text-[10px] text-amber-300 hover:text-amber-100 transition-colors shrink-0"
+                >
+                  Fix in ⓘ
+                </button>
+              </div>
+            )}
+            {/* First-visit nudge: tells users where their connections moved until they've opened About */}
+            {fullySetUp && !aboutVisited && (
+              <button
+                onClick={openAbout}
+                className="w-full text-left py-1.5 px-2 rounded bg-blue-900/20 border border-blue-800/30 text-[10px] text-blue-300 hover:bg-blue-900/30 transition-colors"
+              >
+                Your platform &amp; calendar connections are in ⓘ above →
+              </button>
+            )}
             {/* Heartbeat-failure banner: only relevant in a meeting, since
                 presence is what tells the backend "user is in this Zoom call"
                 so Recall.ai will auto-verify them. Without it the bot may
@@ -937,7 +980,6 @@ export function PanelWindow() {
               </div>
             )}
             {renderMeetingSection()}
-            <CoreBehaviorSkillsPanel />
             <Gauges chartData={chartData} hasBotInMeeting={hasBotInMeeting} />
             {import.meta.env.DEV && <DevMode />}
           </>
