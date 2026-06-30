@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "minerva-desktop"
 version = "0.1.23"
 description = "Minerva Coach Desktop Overlay"
