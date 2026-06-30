@@ -13,8 +13,10 @@ import type {
   FeatureState,
   FeatureSlice,
 } from "../../hooks/use-feature-state";
+import { AccountStatus } from "./AccountStatus";
+import type { ConnectedAccounts } from "../../hooks/use-connected-accounts";
+import type { CalendarStatus } from "../../hooks/use-calendar-status";
 
-const DASHBOARD_PROFILE_URL = "https://minervacoach.com/dashboard/profile";
 const SUPPORT_EMAIL = "matt@minervacoach.com";
 const THIRD_PARTY_LICENSES_URL =
   "https://github.com/Minerva-Coach/minerva-desktop/releases/latest/download/THIRD_PARTY_LICENSES.md";
@@ -24,6 +26,11 @@ interface AboutModalProps {
   onSignOut: () => void;
   featureState: FeatureState | null;
   setFeatureEnabled: (feature: FeatureName, enabled: boolean) => Promise<void>;
+  accounts: ConnectedAccounts;
+  accountsLoading: boolean;
+  onRefreshAccounts: () => void;
+  calendarStatus: CalendarStatus | null;
+  calendarLoading: boolean;
 }
 
 const FEATURE_LABEL: Record<FeatureName, string> = {
@@ -47,6 +54,11 @@ export function AboutModal({
   onSignOut,
   featureState,
   setFeatureEnabled,
+  accounts,
+  accountsLoading,
+  onRefreshAccounts,
+  calendarStatus,
+  calendarLoading,
 }: AboutModalProps) {
   const { status, checkNow } = useUpdaterContext();
   const [version, setVersion] = useState<string>("");
@@ -176,7 +188,16 @@ export function AboutModal({
         className="flex-1 overflow-y-auto px-3 py-3 space-y-3 text-xs [&::-webkit-scrollbar]:hidden"
         style={{ scrollbarWidth: "none" }}
       >
-        <div>
+        {/* Connection status — moved here from the main panel */}
+        <AccountStatus
+          accounts={accounts}
+          loading={accountsLoading}
+          onRefresh={onRefreshAccounts}
+          calendarStatus={calendarStatus}
+          calendarLoading={calendarLoading}
+        />
+
+        <div className="border-t border-gray-800 pt-3">
           <p className="text-gray-200 font-medium">Minerva Coach</p>
           <p className="text-[10px] text-gray-500">Version {version || "…"}</p>
         </div>
@@ -291,12 +312,6 @@ export function AboutModal({
         </div>
 
         <div className="pt-2 border-t border-gray-800 space-y-1.5">
-          <button
-            onClick={() => openShell(DASHBOARD_PROFILE_URL)}
-            className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-800 text-[11px] text-blue-400"
-          >
-            Manage connected accounts →
-          </button>
           <button
             onClick={() => openShell(`mailto:${SUPPORT_EMAIL}`)}
             className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-800 text-[11px] text-blue-400"

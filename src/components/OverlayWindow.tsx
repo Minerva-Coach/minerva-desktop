@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -6,6 +6,12 @@ import { useSocket } from "../hooks/use-socket";
 import { FloatingIcon } from "./overlay/FloatingIcon";
 import { BehaviorStations } from "./overlay/BehaviorStations";
 import type { CoachingMessage } from "../types/coaching";
+
+const INTRO_STORAGE_KEY = "minerva_overlay_intro_acked";
+type IntroStage = "button" | "description" | "acknowledged";
+function loadIntroStage(): IntroStage {
+  return localStorage.getItem(INTRO_STORAGE_KEY) === "true" ? "acknowledged" : "button";
+}
 
 interface ActiveIcon {
   id: number;
@@ -48,6 +54,17 @@ export function OverlayWindow() {
   const [icons, setIcons] = useState<ActiveIcon[]>([]);
   const [visible, setVisible] = useState(false);
   const [repositioning, setRepositioning] = useState(false);
+  const [introStage, setIntroStage] = useState<IntroStage>(loadIntroStage);
+  // Ref so the cursor-poll closure always sees the latest intro stage without
+  // needing to be re-registered on every stage change.
+  const introStageRef = useRef(introStage);
+  useEffect(() => { introStageRef.current = introStage; }, [introStage]);
+
+  const handleIntroAcknowledge = () => {
+    localStorage.setItem(INTRO_STORAGE_KEY, "true");
+    setIntroStage("acknowledged");
+  };
+  const handleIntroMoreInfo = () => invoke("open_icon_key").catch(console.warn);
 
   // Reposition (fallback) mode: the whole window is interactive so the user
   // can drag from anywhere. This is the only writer of click-through while
@@ -90,13 +107,15 @@ export function OverlayWindow() {
           win.scaleFactor(),
         ]);
         const headerHeightPx = HEADER_DRAG_HEIGHT * scale;
+        const introActive = introStageRef.current !== "acknowledged";
         const over =
-          cx >= wpos.x &&
-          cx < wpos.x + wsize.width &&
-          cy >= wpos.y &&
-          cy < wpos.y + headerHeightPx;
-        // Interactive over the header (so mousedown reaches startDragging),
-        // click-through everywhere else.
+          introActive ||
+          (cx >= wpos.x &&
+            cx < wpos.x + wsize.width &&
+            cy >= wpos.y &&
+            cy < wpos.y + headerHeightPx);
+        // Interactive over the header (or the whole window when intro is
+        // showing so the intro buttons are clickable).
         if (!cancelled) await win.setIgnoreCursorEvents(!over);
       } catch {
         /* ignore */
@@ -260,8 +279,48 @@ export function OverlayWindow() {
         </p>
       </div>
 
-      <div className="px-2 pt-2">
-        <BehaviorStations behaviors={lastChartData?.data.behaviors ?? []} />
+      <div className="px-2 pt-2 relative">
+        <div className={`transition-opacity duration-300 ${introStage !== "acknowledged" ? "opacity-30 pointer-events-none select-none" : ""}`}>
+          <BehaviorStations behaviors={lastChartData?.data.behaviors ?? []} />
+        </div>
+
+        {introStage === "button" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <button
+              onClick={() => setIntroStage("description")}
+              className="px-3 py-1.5 rounded-lg bg-black/60 hover:bg-black/80 border border-white/30 text-[11px] text-white font-medium transition-colors shadow-lg"
+            >
+              What is this window?
+            </button>
+          </div>
+        )}
+
+        {introStage === "description" && (
+          <div className="absolute inset-0 flex items-center justify-center px-1">
+            <div className="w-full p-2.5 rounded-lg bg-slate-900/90 border border-white/20 shadow-lg space-y-2">
+              <p className="text-[11px] text-gray-200 leading-relaxed">
+                This window shows real-time coaching in the form of floating
+                icons when you use one of our core skills: Summarizing
+                Statement, Open-Ended Question, Exploring Emotions or Values,
+                and Intent Alignment.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleIntroAcknowledge}
+                  className="flex-1 px-2 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-[11px] text-white font-medium transition-colors"
+                >
+                  Got it
+                </button>
+                <button
+                  onClick={handleIntroMoreInfo}
+                  className="px-2 py-1.5 rounded bg-white/10 hover:bg-white/20 text-[11px] text-gray-200 font-medium transition-colors whitespace-nowrap"
+                >
+                  More info
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {icons.map((icon) => (

@@ -50,7 +50,7 @@ export function AccountStatus({
     return (
       <div>
         <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
-          Accounts
+          Meeting Platforms
         </h3>
         <p className="text-[10px] text-gray-600 italic">Loading...</p>
       </div>
@@ -80,7 +80,7 @@ export function AccountStatus({
       {/* Platform accounts (Zoom / Teams) */}
       <div>
         <h3 className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
-          Accounts
+          Meeting Platforms
         </h3>
         <div className="space-y-1">
           {platforms.map((p) => (
