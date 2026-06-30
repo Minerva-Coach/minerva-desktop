@@ -267,13 +267,18 @@ export function PanelWindow() {
 
   // Show "What's New" popup once after an auto-update. The updater writes to
   // localStorage before calling relaunch(); we read and clear it here.
+  // Also bring the panel into view — the app relaunches minimized to tray,
+  // so the modal renders but is invisible unless we explicitly show the window.
   useEffect(() => {
     const raw = localStorage.getItem("minerva_release_notes_pending");
     if (!raw) return;
     localStorage.removeItem("minerva_release_notes_pending");
     try {
       const parsed = JSON.parse(raw);
-      if (parsed?.version) setReleaseNotes(parsed);
+      if (parsed?.version) {
+        setReleaseNotes(parsed);
+        invoke("show_panel").catch(console.warn);
+      }
     } catch {
       // Malformed storage entry — ignore.
     }
