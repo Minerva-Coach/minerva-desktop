@@ -300,37 +300,32 @@ jobs:
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           BASE="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}"
 
-          # Files on disk use the product name "Minerva Coach" (with space);
-          # GitHub rewrites spaces to periods in release asset URLs.
-          # Windows: MSI matches the installer type users currently download
-          # (mismatched installer types can fail on update).
-          # macOS: updater consumes .app.tar.gz, not .dmg — the .dmg is for
-          # first-install only.
           WIN_SIG=$(cat "release/Minerva Coach_${VERSION}_x64_en-US.msi.sig")
           MAC_X64_SIG=$(cat "release/Minerva Coach_${VERSION}_x64.app.tar.gz.sig")
           MAC_ARM_SIG=$(cat "release/Minerva Coach_${VERSION}_aarch64.app.tar.gz.sig")
 
-          cat > release/latest.json <<EOF
-          {
-            "version": "${VERSION}",
-            "notes": "See release notes at https://github.com/${{ github.repository }}/releases/tag/${GITHUB_REF_NAME}",
-            "pub_date": "${PUB_DATE}",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "${WIN_SIG}",
-                "url": "${BASE}/Minerva.Coach_${VERSION}_x64_en-US.msi"
-              },
-              "darwin-x86_64": {
-                "signature": "${MAC_X64_SIG}",
-                "url": "${BASE}/Minerva.Coach_${VERSION}_x64.app.tar.gz"
-              },
-              "darwin-aarch64": {
-                "signature": "${MAC_ARM_SIG}",
-                "url": "${BASE}/Minerva.Coach_${VERSION}_aarch64.app.tar.gz"
+          # Use jq to build the JSON so RELEASE_NOTES.md content is safely
+          # escaped — multiline text and special characters break heredoc JSON.
+          jq -n \
+            --arg version  "$VERSION" \
+            --arg notes    "$(cat RELEASE_NOTES.md)" \
+            --arg pub_date "$PUB_DATE" \
+            --arg win_sig  "$WIN_SIG" \
+            --arg win_url  "${BASE}/Minerva.Coach_${VERSION}_x64_en-US.msi" \
+            --arg x64_sig  "$MAC_X64_SIG" \
+            --arg x64_url  "${BASE}/Minerva.Coach_${VERSION}_x64.app.tar.gz" \
+            --arg arm_sig  "$MAC_ARM_SIG" \
+            --arg arm_url  "${BASE}/Minerva.Coach_${VERSION}_aarch64.app.tar.gz" \
+            '{
+              version:  $version,
+              notes:    $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "windows-x86_64": { signature: $win_sig, url: $win_url },
+                "darwin-x86_64":  { signature: $x64_sig, url: $x64_url },
+                "darwin-aarch64": { signature: $arm_sig, url: $arm_url }
               }
-            }
-          }
-          EOF
+            }' > release/latest.json
 
           echo "Generated latest.json:"
           cat release/latest.json
@@ -340,45 +335,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: "Minerva Coach ${{ github.ref_name }}"
-          body: |
-            ## Minerva Coach ${{ github.ref_name }}
-
-            Download the installer for your platform:
-            - **Windows**: `.msi`
-            - **macOS (Apple Silicon)**: `aarch64.dmg`
-            - **macOS (Intel)**: `x64.dmg`
-
-            The app auto-updates after installation.
-
-            ---
-
-            ### Installing on Windows
-
-            Windows SmartScreen will show a "Windows protected your PC" warning
-            for unsigned apps. To install:
-
-            1. Click **More info**
-            2. Click **Run anyway**
-            3. Complete the installer
-
-            This is normal for new apps. Minerva Coach is not yet signed with a
-            code-signing certificate — we'll add one as we grow. The app is
-            identical to what a signed installer would provide; the warning
-            only indicates that our publisher identity hasn't been verified by
-            Microsoft.
-
-            ### Installing on macOS
-
-            Open the `.dmg` and drag **Minerva Coach** to **Applications**.
-            The app is signed with a Developer ID certificate and notarized by
-            Apple — Gatekeeper opens it without warnings.
-
-            Pick `aarch64` for M1/M2/M3 Macs, `x64` for older Intel Macs.
-
-            ### Uninstalling
-
-            In the app: click the ⓘ button, then **Sign out**, then use
-            Windows **Settings → Apps → Installed apps** to uninstall.
-            Full steps: https://github.com/${{ github.repository }}/blob/main/UNINSTALL.md
+          body_path: RELEASE_NOTES.md
           draft: true
           files: release/*
