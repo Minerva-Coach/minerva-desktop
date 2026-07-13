@@ -19,4 +19,16 @@ ignore = [
     # (the only branch we control); 0.7.3 will linger until its parent bumps.
     # Remove once no `rand` v0.7.x remains in `cargo tree`.
     "RUSTSEC-2026-0097",
+
+    # quick-xml 0.38.4 — quadratic-time attribute-dedup check, a CPU-exhaustion
+    # DoS when parsing untrusted XML with many duplicate attribute names.
+    # Pulled in via `plist`, pinned by tauri/tauri-codegen/tauri-plugin's own
+    # Cargo.toml; `cargo update -p quick-xml` confirms 0.38.4 is already the
+    # newest version tauri's pin allows (patched version is >=0.41.0).
+    # Not exploitable here: plist is only used for build-time macOS
+    # Info.plist generation from our own trusted config, never for parsing
+    # attacker-controlled XML at runtime.
+    # Remove once tauri bumps its plist dependency past quick-xml 0.41.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
 ]
