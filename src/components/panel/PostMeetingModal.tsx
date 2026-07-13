@@ -290,8 +290,8 @@ export function PostMeetingModal({
             onClick={() => {
               const url =
                 meetingId > 0
-                  ? `https://minervacoach.com/my-meetings?meeting=${meetingId}`
-                  : "https://minervacoach.com/my-meetings";
+                  ? `https://minervacoach.com/dashboard/my-meetings?meeting=${meetingId}`
+                  : "https://minervacoach.com/dashboard/my-meetings";
               openExternal(url).catch(console.warn);
             }}
             className="underline text-gray-400 hover:text-gray-200 cursor-pointer transition-colors"
