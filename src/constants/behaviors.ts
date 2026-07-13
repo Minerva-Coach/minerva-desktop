@@ -15,6 +15,10 @@ export interface BehaviorMeta {
   definition: string;
   /** Alternate names the backend might send (e.g. the display name itself) */
   aliases?: string[];
+  /** Temporarily excluded from display/flashing — e.g. the calculation
+   * behind it isn't reliable yet. Still defined here so re-enabling it is a
+   * one-line change. */
+  hidden?: boolean;
 }
 
 export const COMPANION_BEHAVIORS: BehaviorMeta[] = [
@@ -49,13 +53,15 @@ export const COMPANION_BEHAVIORS: BehaviorMeta[] = [
     emoji: "🎯",
     definition: "Broach difficult topics by clarifying intentions.",
     aliases: ["intent alignment", "inclusive actions"],
+    // Hidden for now — the underlying calculation isn't reliable yet.
+    hidden: true,
   },
 ];
 
-/** Prefix applied to a behavior's emoji when the message is a suggestion
- * to *use* that behavior now ("⏰❓" = "time to ask an open-ended question").
- * Paired visually with the raw behavior emoji used for praise. */
-export const SUGGESTION_PREFIX = "⏰";
+/** Behaviors shown in the Core Meeting Skills box and Icon Key. */
+export const VISIBLE_COMPANION_BEHAVIORS = COMPANION_BEHAVIORS.filter(
+  (b) => !b.hidden
+);
 
 /** Warning icon set. Backend emits these via `metadata.warning_type` on
  * priority_message (or coaching_tip for speaking_speed). */

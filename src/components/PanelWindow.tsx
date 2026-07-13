@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAuth } from "../hooks/use-auth";
 import { useSocket } from "../hooks/use-socket";
-import { useDevChartData } from "../hooks/use-dev-events";
+import { useDevChartData, useDevCoachingMessage } from "../hooks/use-dev-events";
 import { useConnectedAccounts } from "../hooks/use-connected-accounts";
 import { useCalendarStatus } from "../hooks/use-calendar-status";
 import { useMeetingStatus } from "../hooks/use-meeting-status";
@@ -13,6 +13,7 @@ import { useWelcomeAcknowledged } from "../hooks/use-welcome-acknowledged";
 import { usePresenceError } from "../hooks/use-presence";
 import { useUpdaterContext } from "../contexts/updater-context";
 import { Gauges } from "./panel/Gauges";
+import { CoreMeetingSkills } from "./panel/CoreMeetingSkills";
 import { DevMode } from "./panel/DevMode";
 import { AboutModal } from "./panel/AboutModal";
 import { CompanionIntroBanner } from "./panel/CompanionIntroBanner";
@@ -40,17 +41,20 @@ export function PanelWindow() {
     isConnected,
     activeMeetings,
     lastChartData,
+    lastCoachingMessage,
     lastSocketError,
     lastAdviceReady,
     sendMeetingStatus,
   } = useSocket();
   const hasBotInMeeting = activeMeetings.length > 0;
   const devChartData = useDevChartData();
+  const devCoachingMessage = useDevCoachingMessage();
   // Clear stats display when the bot isn't actively coaching — otherwise the
   // previous meeting's numbers would linger visible into the next one.
   // Dev-mode simulated data still shows up so the gauges UI can be
   // developed outside of real meetings.
   const chartData = devChartData ?? (hasBotInMeeting ? lastChartData : null);
+  const coachingMessage = devCoachingMessage ?? lastCoachingMessage;
   const {
     accounts,
     loading: accountsLoading,
@@ -373,6 +377,7 @@ export function PanelWindow() {
   // is coaching, chartData is null and the tray clears (#249).
   useEffect(() => {
     const title = chartData?.data.behaviors
+      .filter((b) => !findBehavior(b.name)?.hidden)
       .map((b) => {
         const meta = findBehavior(b.name);
         const label = meta?.label ?? b.name.toUpperCase();
@@ -985,6 +990,12 @@ export function PanelWindow() {
               </div>
             )}
             {renderMeetingSection()}
+            {chartData !== null && (
+              <CoreMeetingSkills
+                behaviors={chartData.data.behaviors}
+                coachingMessage={coachingMessage}
+              />
+            )}
             <Gauges chartData={chartData} hasBotInMeeting={hasBotInMeeting} />
             {import.meta.env.DEV && <DevMode />}
           </>

@@ -1,9 +1,9 @@
 //! Minerva Coach Desktop App.
 //!
-//! A lightweight, always-on-top overlay that:
+//! A lightweight, always-on-top panel that:
 //! - Detects active Zoom meetings
 //! - Heartbeats presence to the Minerva backend
-//! - Displays transient coaching icons via SocketIO events
+//! - Displays real-time coaching via SocketIO events
 //!
 //! TEMPORARY: The identity bridge features (presence heartbeat + meeting
 //! detection) will be removed when Zoom Marketplace OAuth is approved.
@@ -42,9 +42,6 @@ pub fn run() {
                 let _ = w.set_always_on_top(true);
                 let _ = w.set_focus();
             }
-            if let Some(w) = app.get_webview_window("overlay") {
-                let _ = w.show();
-            }
             let _ = app.emit("second-instance-launched", ());
         }))
         // File logging to the app log dir (Windows:
@@ -72,20 +69,20 @@ pub fn run() {
             None,
         ))
         .manage(meeting_state.clone())
-        // Panel and overlay are the app's persistent surfaces — they live for
-        // the whole session and are only ever hidden, never destroyed. If a
-        // user closes one (Alt+F4, or the taskbar "Close window" entry the
-        // panel exposes via skipTaskbar:false), the default Tauri behavior
-        // destroys the window; once the last window is gone the app exits
-        // cleanly with no warning — which is exactly the "it closed on its
-        // own" symptom. Intercept CloseRequested on these two and hide instead.
-        // Helper windows (icon-key, focus-goals, agenda, coaching) are
-        // on-demand and may close normally.
+        // The panel is the app's persistent surface — it lives for the whole
+        // session and is only ever hidden, never destroyed. If the user
+        // closes it (Alt+F4, or the taskbar "Close window" entry it exposes
+        // via skipTaskbar:false), the default Tauri behavior destroys the
+        // window; once the last window is gone the app exits cleanly with no
+        // warning — which is exactly the "it closed on its own" symptom.
+        // Intercept CloseRequested on it and hide instead. Helper windows
+        // (icon-key, focus-goals, agenda, coaching) are on-demand and may
+        // close normally.
         .on_window_event(|window, event| {
             let label = window.label();
             match event {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    if label == "panel" || label == "overlay" {
+                    if label == "panel" {
                         api.prevent_close();
                         let _ = window.hide();
                         log::info!("CloseRequested on '{label}' intercepted — hidden to tray");
@@ -102,8 +99,7 @@ pub fn run() {
                 // WS_VISIBLE without resizing), so this won't fight the
                 // user's own hide-via-_ button.
                 tauri::WindowEvent::Resized(size)
-                    if size.width == 0 && size.height == 0
-                        && (label == "panel" || label == "overlay") =>
+                    if size.width == 0 && size.height == 0 && label == "panel" =>
                 {
                     log::info!("'{label}' minimized externally — restoring always-on-top");
                     let _ = window.unminimize();
@@ -126,9 +122,6 @@ pub fn run() {
             commands::api_request,
             commands::get_app_version,
             commands::get_diagnostic_context,
-            commands::set_overlay_visible,
-            commands::start_overlay_reposition,
-            commands::get_cursor_position,
             commands::open_icon_key,
             commands::open_focus_goals,
             commands::open_agenda,
@@ -198,9 +191,8 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             tray::setup(app)?;
 
-            // Position windows on the right side of the primary monitor.
-            // Panel: right edge, vertically centered.
-            // Overlay: thin strip to the left of the panel for floating icons.
+            // Position the panel on the right edge of the primary monitor,
+            // vertically centered.
             if let Some(panel) = app.get_webview_window("panel") {
                 if let Ok(Some(monitor)) = panel.primary_monitor() {
                     let ms = monitor.size();
@@ -214,17 +206,6 @@ pub fn run() {
                         x: panel_x,
                         y: panel_y,
                     });
-
-                    if let Some(overlay) = app.get_webview_window("overlay") {
-                        let overlay_w = 340;
-                        let overlay_h = 440;
-                        let overlay_x = panel_x - overlay_w - 10;
-                        let overlay_y = mp.y + (ms.height as i32 - overlay_h) / 2;
-                        let _ = overlay.set_position(tauri::PhysicalPosition {
-                            x: overlay_x,
-                            y: overlay_y,
-                        });
-                    }
                 }
             }
 
