@@ -121,6 +121,8 @@ function randomChartData(): CompanionDataUpdate {
       behaviors: [
         { name: "Open-ended Questions", count: Math.floor(Math.random() * 8), target: 5, scaled_target: 5 },
         { name: "Empathy", count: Math.floor(Math.random() * 6), target: 4, scaled_target: 4 },
+        { name: "Summarizing Statement", count: Math.floor(Math.random() * 5), target: 3, scaled_target: 3 },
+        { name: "Intent Alignment", count: Math.floor(Math.random() * 4), target: 2, scaled_target: 2 },
       ],
       filler_words: {
         fraction: Math.random() * 0.08,
@@ -133,8 +135,9 @@ function randomChartData(): CompanionDataUpdate {
 }
 
 /**
- * Dev mode panel for testing coaching icons and gauge updates.
- * Sends fake events via Tauri event system (picked up by overlay window).
+ * Dev mode panel for testing coaching flashes and gauge updates.
+ * Sends fake events via the Tauri event system (picked up by the panel
+ * itself via useDevCoachingMessage/useDevChartData).
  */
 export function DevMode() {
   const [enabled, setEnabled] = useState(false);

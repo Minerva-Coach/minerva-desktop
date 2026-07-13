@@ -78,17 +78,11 @@ fn show_all(app: &tauri::AppHandle) -> tauri::Result<()> {
         w.show()?;
         let _ = w.set_focus();
     }
-    if let Some(w) = app.get_webview_window("overlay") {
-        w.show()?;
-    }
     Ok(())
 }
 
 fn hide_all(app: &tauri::AppHandle) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("panel") {
-        w.hide()?;
-    }
-    if let Some(w) = app.get_webview_window("overlay") {
         w.hide()?;
     }
     Ok(())

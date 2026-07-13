@@ -47,8 +47,6 @@ const FEATURE_OPEN_COMMAND: Record<FeatureName, string> = {
 
 const FEATURE_ORDER: FeatureName[] = ["focusGoals", "agenda", "coaching"];
 
-const OVERLAY_VISIBLE_KEY = "minerva.overlayVisible";
-
 export function AboutModal({
   onClose,
   onSignOut,
@@ -64,10 +62,6 @@ export function AboutModal({
   const [version, setVersion] = useState<string>("");
   const [autostartOn, setAutostartOn] = useState<boolean | null>(null);
   const [showUninstall, setShowUninstall] = useState(false);
-  const [overlayOn, setOverlayOn] = useState<boolean>(() => {
-    const saved = localStorage.getItem(OVERLAY_VISIBLE_KEY);
-    return saved === null ? true : saved === "true";
-  });
   const { scale: fontScale, saveScale: saveFontScale } = useFontScale();
   const [fontSaving, setFontSaving] = useState(false);
 
@@ -104,26 +98,6 @@ export function AboutModal({
       }
     } catch (err) {
       console.warn("autostart toggle failed:", err);
-    }
-  };
-
-  const toggleOverlay = async () => {
-    const next = !overlayOn;
-    setOverlayOn(next);
-    localStorage.setItem(OVERLAY_VISIBLE_KEY, String(next));
-    try {
-      await invoke("set_overlay_visible", { visible: next });
-    } catch (err) {
-      console.warn("overlay toggle failed:", err);
-    }
-  };
-
-  const repositionOverlay = async () => {
-    try {
-      await invoke("start_overlay_reposition");
-      onClose();
-    } catch (err) {
-      console.warn("reposition overlay failed:", err);
     }
   };
 
@@ -236,25 +210,6 @@ export function AboutModal({
         </div>
 
         <div className="flex items-center justify-between py-1">
-          <span className="text-[11px] text-gray-300">Show coaching overlay</span>
-          <button
-            type="button"
-            onClick={toggleOverlay}
-            className={`relative w-10 h-5 rounded-full transition-colors ${
-              overlayOn ? "bg-blue-600" : "bg-gray-700"
-            }`}
-            aria-pressed={overlayOn}
-            aria-label="Toggle coaching overlay"
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                overlayOn ? "translate-x-5" : "translate-x-0"
-              }`}
-            />
-          </button>
-        </div>
-
-        <div className="flex items-center justify-between py-1">
           <span className="text-[11px] text-gray-300">Font size</span>
           <div className="flex gap-1" role="radiogroup" aria-label="Font size">
             {(["small", "medium", "large"] as const).map((opt) => {
@@ -279,15 +234,6 @@ export function AboutModal({
             })}
           </div>
         </div>
-
-        <button
-          onClick={repositionOverlay}
-          disabled={!overlayOn}
-          className="w-full px-2 py-1.5 rounded bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900 disabled:text-gray-600 text-[11px] text-gray-200 transition-colors"
-          title={overlayOn ? "Drag the overlay to a new position" : "Enable the overlay to reposition it"}
-        >
-          Reposition overlay
-        </button>
 
         <button
           onClick={openIconKey}

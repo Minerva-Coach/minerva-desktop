@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::auth;
 use crate::error_chain;
@@ -185,49 +185,6 @@ fn detect_os_version() -> String {
     }
 }
 
-/// Show or hide the coaching overlay window independently of meeting state.
-///
-/// Used by the About modal's "Show coaching overlay" toggle. Visibility
-/// preference is persisted on the frontend (localStorage); this command is
-/// just the imperative to apply it.
-#[tauri::command]
-pub async fn set_overlay_visible(app: AppHandle, visible: bool) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window("overlay") {
-        if visible {
-            w.show().map_err(|e| e.to_string())?;
-        } else {
-            w.hide().map_err(|e| e.to_string())?;
-        }
-    }
-    Ok(())
-}
-
-/// Screen-space cursor position in physical pixels.
-///
-/// Used by the overlay to decide whether the cursor is over its drag-handle
-/// header. Tauri only supports per-*window* click-through, so the overlay
-/// polls this and toggles `setIgnoreCursorEvents` on header entry/exit —
-/// preserving HUD-style click-through everywhere except the header strip.
-#[tauri::command]
-pub fn get_cursor_position(app: AppHandle) -> Result<(f64, f64), String> {
-    let pos = app.cursor_position().map_err(|e| e.to_string())?;
-    Ok((pos.x, pos.y))
-}
-
-/// Enter overlay reposition mode. Makes sure the overlay window is visible
-/// (so it can receive cursor events once click-through is toggled off on
-/// the frontend side) and fires the `overlay-reposition-enter` event that
-/// the overlay listens for.
-#[tauri::command]
-pub async fn start_overlay_reposition(app: AppHandle) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window("overlay") {
-        w.show().map_err(|e| e.to_string())?;
-        w.set_focus().map_err(|e| e.to_string())?;
-    }
-    app.emit("overlay-reposition-enter", ())
-        .map_err(|e| e.to_string())
-}
-
 /// Open (or focus, if already open) the Icon Key window. This is a small
 /// standalone window the user can leave visible while they learn what
 /// each coaching icon means. Created on-demand rather than pre-declared
@@ -314,32 +271,24 @@ pub async fn open_coaching(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Hide the panel and overlay windows.
+/// Hide the panel window.
 #[tauri::command]
 pub async fn hide_windows(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("panel") {
         w.hide().map_err(|e| e.to_string())?;
     }
-    if let Some(w) = app.get_webview_window("overlay") {
-        w.hide().map_err(|e| e.to_string())?;
-    }
     Ok(())
 }
 
-/// Show the panel and overlay windows, re-asserting their always-on-top
-/// status. Windows occasionally demotes TOPMOST windows when another app
-/// (Zoom) transitions into full-screen meeting mode, which can leave the
-/// panel minimized to the taskbar. We call `unminimize` + `show` +
-/// `set_always_on_top(true)` to recover from that state. No-op if the
-/// window is already visible and on-top.
+/// Show the panel window, re-asserting its always-on-top status. Windows
+/// occasionally demotes TOPMOST windows when another app (Zoom) transitions
+/// into full-screen meeting mode, which can leave the panel minimized to
+/// the taskbar. We call `unminimize` + `show` + `set_always_on_top(true)`
+/// to recover from that state. No-op if the window is already visible and
+/// on-top.
 #[tauri::command]
 pub async fn show_windows(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("panel") {
-        let _ = w.unminimize();
-        w.show().map_err(|e| e.to_string())?;
-        let _ = w.set_always_on_top(true);
-    }
-    if let Some(w) = app.get_webview_window("overlay") {
         let _ = w.unminimize();
         w.show().map_err(|e| e.to_string())?;
         let _ = w.set_always_on_top(true);
@@ -353,8 +302,7 @@ pub async fn show_windows(app: AppHandle) -> Result<(), String> {
 /// tray, but the post-meeting analysis (an LLM call) lands seconds-to-minutes
 /// later. When it's ready we pop the panel back up so the user sees their
 /// feedback right away instead of stumbling on it at the start of their next
-/// meeting. Deliberately panel-only — unlike `show_windows` we don't reveal
-/// the coaching overlay, since no meeting is in progress.
+/// meeting. Unlike `show_windows`, this also grabs focus.
 #[tauri::command]
 pub async fn show_panel(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("panel") {
@@ -656,7 +604,7 @@ pub fn update_tray_title(app: AppHandle, title: String) -> Result<(), String> {
 /// text, padding, icons — which is the only sensible way to scale this app's
 /// UI given it uses 100+ absolute `text-[Npx]` Tailwind declarations that a
 /// CSS-variable approach can't reach. Applied to all windows in one call so
-/// the panel, overlay, and icon-key stay visually in sync.
+/// the panel and icon-key stay visually in sync.
 ///
 /// Factor is clamped to [0.5, 2.0]; the JS hook only sends values in the
 /// 0.88..1.18 range today.

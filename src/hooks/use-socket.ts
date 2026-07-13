@@ -40,9 +40,9 @@ interface UseSocketReturn {
  * else the user's IT environment imposes — none of which rustls or
  * native-tls see through reliably.
  *
- * Other windows (overlay, icon-key) listen for the re-broadcast Tauri
- * events the panel emits — same event names and payload shapes as the
- * old Rust proxy emitted, so consumers are unchanged.
+ * Other windows (icon-key) listen for the re-broadcast Tauri events the
+ * panel emits — same event names and payload shapes as the old Rust proxy
+ * emitted, so consumers are unchanged.
  */
 export function useSocket(): UseSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
@@ -89,9 +89,10 @@ export function useSocket(): UseSocketReturn {
     };
   }, [isPanel]);
 
-  // Clear transient per-meeting state at meeting boundaries so the overlay
-  // and gauges don't show the previous meeting's behavior counts when a new
-  // meeting starts before the first companion_data_update arrives (#214).
+  // Clear transient per-meeting state at meeting boundaries so the panel's
+  // skill/gauge displays don't show the previous meeting's behavior counts
+  // when a new meeting starts before the first companion_data_update
+  // arrives (#214).
   // Runs in every window — panel owns its own state, non-panel windows
   // mirror the broadcast — so both need the reset.
   useEffect(() => {
