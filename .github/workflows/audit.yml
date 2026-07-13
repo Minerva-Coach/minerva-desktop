@@ -34,6 +34,10 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: src-tauri
+          # This action doesn't read src-tauri/audit.toml's [advisories.ignore]
+          # itself — it only honors this input. Keep the two lists in sync;
+          # audit.toml documents *why* each one is ignored.
+          ignore: "RUSTSEC-2024-0429,RUSTSEC-2026-0097"
 
   cargo-clippy:
     name: cargo clippy (Rust SAST)
