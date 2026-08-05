@@ -1,7 +1,8 @@
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
+import type { ReactNode } from "react";
 import type { ConnectedAccounts } from "../../hooks/use-connected-accounts";
-import type { CalendarStatus } from "../../hooks/use-calendar-status";
+import type { CalendarProvider, CalendarStatus } from "../../hooks/use-calendar-status";
 
 const SETTINGS_URL = "https://minervacoach.com/dashboard/profile";
 
@@ -70,10 +71,10 @@ export function AccountStatus({
     },
   ];
 
-  const msStatus = calendarStatus?.microsoft.status;
-  const isMsConnected = msStatus === "connected";
+  const isMsConnected = (calendarStatus?.microsoft.accounts.length ?? 0) > 0;
+  const isGoogleConnected = (calendarStatus?.google.accounts.length ?? 0) > 0;
   const noCalendarsConnected =
-    calendarStatus !== null && !isMsConnected && calendarStatus.google.status !== "connected";
+    calendarStatus !== null && !isMsConnected && !isGoogleConnected;
 
   return (
     <div className="space-y-3">
@@ -133,35 +134,20 @@ export function AccountStatus({
           </h3>
           <div className="space-y-1">
             {/* Microsoft Calendar */}
-            <div className="flex items-center justify-between py-1 px-2 rounded bg-gray-800/50">
-              <div className="flex items-center gap-2">
-                <div
-                  className={`w-1.5 h-1.5 rounded-full ${isMsConnected ? "bg-green-500" : "bg-gray-600"}`}
-                />
-                <span className="text-xs text-gray-300">Microsoft</span>
-              </div>
-              {isMsConnected ? (
-                <span className="text-[10px] text-green-400">
-                  {calendarStatus.microsoft.label || "Connected"}
-                </span>
-              ) : (
-                <button
-                  onClick={openSettings}
-                  className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  Open Settings
-                </button>
-              )}
-            </div>
+            <CalendarRow
+              label="Microsoft"
+              connected={isMsConnected}
+              provider={calendarStatus.microsoft}
+              onOpenSettings={openSettings}
+            />
 
             {/* Google Calendar */}
-            <div className="flex items-center justify-between py-1 px-2 rounded bg-gray-800/50">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-gray-600" />
-                <span className="text-xs text-gray-300">Google</span>
-              </div>
-              <span className="text-[10px] text-gray-600">Coming soon</span>
-            </div>
+            <CalendarRow
+              label="Google"
+              connected={isGoogleConnected}
+              provider={calendarStatus.google}
+              onOpenSettings={openSettings}
+            />
           </div>
 
           {/* Prompt to connect if no calendars are linked */}
@@ -181,6 +167,55 @@ export function AccountStatus({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+interface CalendarRowProps {
+  label: string;
+  connected: boolean;
+  provider: CalendarProvider;
+  onOpenSettings: () => void;
+}
+
+/**
+ * Single calendar provider row. Desktop is read-only for calendar
+ * management, so the only action is a link to web Settings.
+ */
+function CalendarRow({ label, connected, provider, onOpenSettings }: CalendarRowProps) {
+  const { accounts, provider_available } = provider;
+
+  let statusNode: ReactNode;
+  if (connected) {
+    statusNode = (
+      <span className="text-[10px] text-green-400">
+        {accounts.length > 1
+          ? `${accounts.length} accounts`
+          : accounts[0]?.label || "Connected"}
+      </span>
+    );
+  } else if (!provider_available) {
+    statusNode = <span className="text-[10px] text-gray-600">Coming soon</span>;
+  } else {
+    statusNode = (
+      <button
+        onClick={onOpenSettings}
+        className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+      >
+        Open Settings
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between py-1 px-2 rounded bg-gray-800/50">
+      <div className="flex items-center gap-2">
+        <div
+          className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-500" : "bg-gray-600"}`}
+        />
+        <span className="text-xs text-gray-300">{label}</span>
+      </div>
+      {statusNode}
     </div>
   );
 }

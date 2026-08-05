@@ -210,8 +210,8 @@ export function PanelWindow() {
   };
 
   const isAnyCalendarConnected =
-    calendarStatus?.microsoft.status === "connected" ||
-    calendarStatus?.google.status === "connected";
+    (calendarStatus?.microsoft.accounts.length ?? 0) > 0 ||
+    (calendarStatus?.google.accounts.length ?? 0) > 0;
   const fullySetUp = hasPlatformConnected && !!isAnyCalendarConnected;
   // Connection Issue modal: opens automatically on a fresh sign-in failure
   // (so non-technical users see the diagnostic without hunting for it) and
