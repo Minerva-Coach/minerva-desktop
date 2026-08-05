@@ -31,4 +31,18 @@ ignore = [
     # Remove once tauri bumps its plist dependency past quick-xml 0.41.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+
+    # rkyv 0.7.46 — insufficient archive validation can cause out-of-bounds
+    # reads when accessing untrusted archives containing Rc/Arc (memory-
+    # exposure). Pulled in via tauri-plugin-log -> byte-unit -> rust_decimal
+    # (rkyv feature); `cargo update -p rust_decimal` confirms 0.7.46 is
+    # already the newest rkyv byte-unit's pin allows (patched version is
+    # >=0.8.17, a breaking rkyv major bump upstream hasn't taken yet).
+    # Not exploitable here: we never call rkyv directly (no matches for
+    # `rkyv` under src-tauri/src) — byte-unit only uses rust_decimal for its
+    # own internal formatting, never to deserialize an rkyv archive, let
+    # alone an untrusted one.
+    # Remove once tauri-plugin-log's byte-unit pin moves rust_decimal to a
+    # version built on rkyv >=0.8.17.
+    "RUSTSEC-2026-0235",
 ]
