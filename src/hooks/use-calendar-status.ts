@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
 
-type MicrosoftCalendarStatus =
-  | "connected"
-  | "teams_connected_no_sub"
-  | "needs_teams";
-type GoogleCalendarStatus = "coming_soon" | "available" | "connected";
-
-interface CalendarAccount<S extends string> {
-  status: S;
+export interface CalendarAccount {
+  identity_id: number;
   label: string | null;
   connected_at: string | null;
+  has_subscription?: boolean;
+}
+
+export interface CalendarProvider {
+  accounts: CalendarAccount[];
   connect_url: string | null;
+  provider_available: boolean;
 }
 
 export interface CalendarStatus {
-  microsoft: CalendarAccount<MicrosoftCalendarStatus>;
-  google: CalendarAccount<GoogleCalendarStatus>;
+  microsoft: CalendarProvider;
+  google: CalendarProvider;
 }
 
 /**
