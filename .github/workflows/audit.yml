@@ -12,14 +12,17 @@ name: Security Scans
 #
 # Triggers:
 #   - On every PR (no path filter — this whole repo is the desktop app).
-#   - Weekly cron, so newly-disclosed CVEs against pinned deps are surfaced
-#     even when no PR is open. Cron also runs gitleaks against full history,
-#     not just the PR delta.
-#   - Manual via workflow_dispatch.
+#   - Manual via workflow_dispatch (also runs gitleaks against full history,
+#     not just the PR delta).
+#
+# No schedule/cron trigger: rustsec/audit-check auto-files a GitHub issue for
+# every advisory (including informational ones) when run on a cron trigger,
+# which would land on this *public* repo — all issue tracking lives in the
+# private MinervaMVP repo instead (see CLAUDE.md). Newly-disclosed CVEs
+# against pinned deps between PRs are already surfaced continuously via
+# GitHub's native Dependabot alerts, which are enabled for this repo.
 on:
   pull_request:
-  schedule:
-    - cron: "0 14 * * 1"  # Mondays at 14:00 UTC (07:00 PT)
   workflow_dispatch:
 
 jobs:
