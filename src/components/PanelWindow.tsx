@@ -22,6 +22,7 @@ import { PostMeetingModal } from "./panel/PostMeetingModal";
 import { ReleaseNotesModal } from "./panel/ReleaseNotesModal";
 import { PasteLinkModal } from "./panel/PasteLinkModal";
 import { ConnectPlatformGate } from "./panel/ConnectPlatformGate";
+import { ConnectCalendarGate } from "./panel/ConnectCalendarGate";
 import { MacosPermissionGate } from "./panel/MacosPermissionGate";
 import { WelcomeComplete } from "./panel/WelcomeComplete";
 import { ConnectionIssueModal } from "./panel/ConnectionIssueModal";
@@ -67,6 +68,7 @@ export function PanelWindow() {
   const {
     status: calendarStatus,
     loading: calendarLoading,
+    refresh: refreshCalendarStatus,
   } = useCalendarStatus(isAuthenticated);
   const presenceError = usePresenceError();
   const { acknowledged: welcomeAcknowledged, acknowledge: acknowledgeWelcome } =
@@ -207,6 +209,14 @@ export function PanelWindow() {
       setAboutVisited(true);
     }
     setShowAbout(true);
+  };
+
+  const [calendarGateDismissed, setCalendarGateDismissed] = useState(
+    () => localStorage.getItem("minerva_calendar_gate_dismissed") === "true"
+  );
+  const dismissCalendarGate = () => {
+    localStorage.setItem("minerva_calendar_gate_dismissed", "true");
+    setCalendarGateDismissed(true);
   };
 
   const isAnyCalendarConnected =
@@ -908,6 +918,16 @@ export function PanelWindow() {
           <ConnectPlatformGate
             accounts={accounts}
             onRefresh={refreshAccounts}
+          />
+        ) : !calendarGateDismissed && !isAnyCalendarConnected && (calendarLoading || calendarStatus === null) ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+            <p className="text-[10px] text-gray-500">Loading…</p>
+          </div>
+        ) : !calendarGateDismissed && !isAnyCalendarConnected && calendarStatus !== null ? (
+          <ConnectCalendarGate
+            status={calendarStatus}
+            onRefresh={refreshCalendarStatus}
+            onSkip={dismissCalendarGate}
           />
         ) : welcomeAcknowledged === null ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
