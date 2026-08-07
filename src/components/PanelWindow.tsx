@@ -585,7 +585,7 @@ export function PanelWindow() {
         <div className="space-y-2">
           <div className="py-2 px-2 rounded bg-green-900/20 border border-green-800/30">
             <p className="text-[10px] text-green-300 font-medium">
-              Minerva will join shortly
+              Minerva has joined the meeting
             </p>
           </div>
           <div className="flex items-center justify-between gap-2">
