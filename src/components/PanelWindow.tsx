@@ -246,6 +246,24 @@ export function PanelWindow() {
     }, 8000);
     return () => clearTimeout(timer);
   }, [accountsError]);
+  // Debounce the status bar's "Disconnected" state by 6 seconds. The
+  // socket.io client backs off up to 5s between reconnect attempts
+  // (reconnectionDelayMax in use-socket.ts), and a stale session id from a
+  // prior connection routinely gets rejected with a 400 and self-heals on
+  // the very next attempt (~2s) — see the 2026-08-06 incident where this
+  // flashed a scary "Can't reach Minerva" diagnostic at the user for a
+  // reconnect that had already resolved by the time they could read it.
+  // Below the threshold we show a neutral "Reconnecting" state instead of
+  // the alarming red/clickable one.
+  const [showDisconnected, setShowDisconnected] = useState(false);
+  useEffect(() => {
+    if (isConnected) {
+      setShowDisconnected(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowDisconnected(true), 6000);
+    return () => clearTimeout(timer);
+  }, [isConnected]);
   const [postMeetingId, setPostMeetingId] = useState<number | null>(null);
   const [postMeetingMock, setPostMeetingMock] = useState<
     React.ComponentProps<typeof PostMeetingModal>["mockData"] | null
@@ -1005,7 +1023,10 @@ export function PanelWindow() {
       {/* Status bar — clickable when authenticated-but-disconnected so the
           user can pop the diagnostic modal without hunting for it. */}
       {(() => {
-        const showAsButton = isAuthenticated && !isConnected;
+        // Alarming (red, clickable) only once a disconnect has outlasted
+        // the debounce window above — a fresh reconnect-in-progress reads
+        // as a neutral "Reconnecting" state instead.
+        const showAsButton = isAuthenticated && showDisconnected;
         const className =
           "w-full px-3 py-1 bg-gray-800 border-t border-gray-700 flex items-center gap-2 text-left" +
           (showAsButton ? " hover:bg-gray-700 cursor-pointer transition-colors" : "");
@@ -1016,7 +1037,9 @@ export function PanelWindow() {
                 ? "bg-gray-600"
                 : isConnected
                   ? "bg-green-500"
-                  : "bg-red-500"
+                  : showDisconnected
+                    ? "bg-red-500"
+                    : "bg-gray-500"
             }`}
           />
         );
@@ -1024,7 +1047,9 @@ export function PanelWindow() {
           ? "Not signed in"
           : isConnected
             ? "Connected"
-            : "Disconnected — click for help";
+            : showDisconnected
+              ? "Disconnected — click for help"
+              : "Reconnecting…";
         if (showAsButton) {
           return (
             <button
