@@ -53,9 +53,13 @@ interface UseFontScaleReturn {
 
 /**
  * Panel-side hook: reconciles the locally-cached font scale with the
- * server-side preference at /api/settings (so a Small set on the dashboard
- * is honored in the desktop app and vice versa), and exposes saveScale for
- * the AboutModal picker.
+ * server-side preference at /api/settings under the desktopFontScale key
+ * (so the same choice is honored across this user's desktop installs),
+ * and exposes saveScale for the AboutModal picker.
+ *
+ * desktopFontScale is deliberately a separate field from the web
+ * dashboard's fontScale — the two UIs' text-size pickers must not affect
+ * each other.
  *
  * Mounted only in the panel — other windows just use applyCachedFontScale
  * at start-up and trust the Rust `set_font_scale` command to broadcast any
@@ -65,8 +69,8 @@ export function useFontScale(): UseFontScaleReturn {
   const [scale, setScale] = useState<FontScale>(() => readCached());
 
   // Reconcile with backend on mount. If the server value differs from the
-  // locally-cached one (e.g. the user set it on the web dashboard), apply
-  // the server value across all windows.
+  // locally-cached one (e.g. the user changed it on another desktop
+  // install), apply the server value across all windows.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -74,7 +78,7 @@ export function useFontScale(): UseFontScaleReturn {
         const resp = await apiFetch("/api/settings");
         if (cancelled || !resp.ok) return;
         const data = await resp.json();
-        const next = data?.fontScale as FontScale | undefined;
+        const next = data?.desktopFontScale as FontScale | undefined;
         if (cancelled || !next || next === scale) return;
         localStorage.setItem(STORAGE_KEY, next);
         setScale(next);
@@ -107,7 +111,7 @@ export function useFontScale(): UseFontScaleReturn {
         const current = getResp.ok ? await getResp.json() : {};
         await apiFetch("/api/settings", {
           method: "POST",
-          body: JSON.stringify({ ...current, fontScale: next }),
+          body: JSON.stringify({ ...current, desktopFontScale: next }),
         });
       } catch (err) {
         // Roll back local state on failure so the picker reflects reality.
