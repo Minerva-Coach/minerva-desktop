@@ -1,3 +1,3 @@
 **What's new in this release:**
 
-- Fixed: Google and Microsoft calendar connection status now displays correctly in the desktop panel.
+- Fixed: the font size you pick in the About window no longer changes the text size on minervacoach.com — the two are now independent settings.
