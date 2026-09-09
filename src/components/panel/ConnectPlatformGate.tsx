@@ -19,7 +19,14 @@ export function ConnectPlatformGate({
 }: ConnectPlatformGateProps) {
   useEffect(() => {
     const id = setInterval(onRefresh, 3000);
-    return () => clearInterval(id);
+    // Stop polling after 5 min so a forgotten gate doesn't keep hitting the
+    // backend until the app is restarted. Mirrors PanelWindow's
+    // connectInFlight poll cap.
+    const timeout = setTimeout(() => clearInterval(id), 5 * 60 * 1000);
+    return () => {
+      clearInterval(id);
+      clearTimeout(timeout);
+    };
   }, [onRefresh]);
 
   const handleConnect = async (connectUrl: string | null | undefined) => {

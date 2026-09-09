@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { apiFetch } from "../lib/api";
 
@@ -41,10 +41,16 @@ export function useConnectedAccounts(isAuthenticated: boolean) {
   const [loading, setLoading] = useState(false);
   const [hasResolved, setHasResolved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasResolvedRef = useRef(false);
+  hasResolvedRef.current = hasResolved;
 
   const refresh = useCallback(async () => {
     if (!isAuthenticated) return;
-    setLoading(true);
+    // Only show a loading state for the initial fetch. Once we've resolved
+    // once, periodic background polls (e.g. PanelWindow's connectInFlight
+    // poll) should update state silently instead of flipping dependent UI
+    // (AccountStatus) back to "Loading...".
+    if (!hasResolvedRef.current) setLoading(true);
     setError(null);
     try {
       const resp = await apiFetch("/oauth/connected-accounts");
