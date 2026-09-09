@@ -1,3 +1,3 @@
 **What's new in this release:**
 
-- New: after connecting your meeting platform, you'll now be prompted to connect your calendar right away — you can skip it and connect later if you'd rather.
+- Fixed: the calendar and meeting-platform connection screens no longer flicker while checking your connection status in the background.
